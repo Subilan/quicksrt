@@ -1,0 +1,44 @@
+# quicksrt 样式预设示例：复制为 presets.toml 并填写实际值。
+# 每段一个命名预设（段名 = 预设名），字段与 [style] 一致：
+#   font_name / font_size_ratio / margin_v_ratio / primary_color / outline_color /
+#   outline / shadow / mode（bilingual|mono）/ primary_lang（zh|en）/
+#   font_bold / font_italic / en_font_name / en_font_ratio / en_bold / en_italic
+# config.toml 的 [style] 中写 preset = "预设名" 引用；
+# 预设为基底，[style] 中显式写的字段会覆盖预设对应字段。
+
+[default]
+# 中文字体与整体字号/边距
+font_name = "Noto Sans CJK SC"
+font_size_ratio = 0.05
+margin_v_ratio = 0.05
+primary_color = "&H00FFFFFF"
+outline_color = "&H00000000"
+outline = 2
+shadow = 1
+# 语言模式：bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
+mode = "bilingual"
+# 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
+primary_lang = "zh"
+# 中文样式（粗体/斜体）
+font_bold = false
+font_italic = false
+# 英文独立字体与样式（英文做主/副语言均生效，字号跟随主/副位置）
+en_font_name = "Noto Sans CJK SC"
+en_font_ratio = 0.6
+en_bold = false
+en_italic = false
+
+# 示例：仿 YouTube 样式（复制此段可新建预设）
+# [youtube]
+# font_name = "Roboto"
+# font_size_ratio = 0.055
+# margin_v_ratio = 0.08
+# primary_color = "&H00FFFFFF"
+# outline = 3
+# shadow = 1
+# mode = "bilingual"
+# primary_lang = "zh"
+# en_font_name = "Roboto"
+# en_font_ratio = 0.6
+# en_bold = false
+# en_italic = false

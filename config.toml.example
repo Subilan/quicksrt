@@ -63,6 +63,8 @@ strip_end_punct = true
 max_chars = 42
 
 [style]
+# 样式预设（见 presets.toml）：预设为基底，本段显式字段覆盖预设；不写则只用本段
+preset = "default"
 # libass 烧录样式（ASS 风格）
 font_name = "Noto Sans CJK SC"
 font_size_ratio = 0.05

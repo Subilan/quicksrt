@@ -196,14 +196,9 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
     title = re.sub(r'[\\/:*?"<>|\s]+', "_", meta.get("title", workdir.name)).strip("_")[:80]
     output = out_dir / f"{title}.mp4"
 
-    style_cfg = cfg.section("style")
+    style_cfg = cfg.style_config()
     mode, primary_lang = _style_mode(style_cfg)
-    style_key = {k: style_cfg.get(k) for k in (
-        "mode", "primary_lang", "bilingual", "font_name", "en_font_name",
-        "font_size_ratio", "en_font_ratio", "margin_v_ratio",
-        "primary_color", "outline_color", "outline", "shadow",
-        "font_bold", "font_italic", "en_bold", "en_italic",
-    )}
+    style_key = dict(style_cfg)
 
     if not force and util.step_done(meta, STEP, style=style_key) and output.exists():
         log.info("[burn] 已完成，跳过")

@@ -66,3 +66,54 @@ def test_load_dotenv(monkeypatch, tmp_path):
     assert os.environ["KEY_A"] == "existing"
     assert os.environ["KEY_B"] == "quoted"
     assert os.environ["KEY_C"] == "single"
+
+
+# ---------- style_config（预设展开） ----------
+
+_PRESETS = {
+    "default": {
+        "font_name": "Noto Sans CJK SC", "font_size_ratio": 0.05,
+        "mode": "bilingual", "primary_lang": "zh", "font_bold": False,
+    },
+    "bold_en": {
+        "font_name": "Arial", "primary_lang": "en",
+        "en_font_name": "Arial", "en_bold": True, "en_italic": True,
+    },
+}
+
+
+def test_style_config_without_preset():
+    cfg = Config({"style": {"font_size_ratio": 0.07}}, None)
+    assert cfg.style_config() == {"font_size_ratio": 0.07}
+
+
+def test_style_config_preset_expand():
+    cfg = Config({"style": {"preset": "default"}}, None, _PRESETS)
+    assert cfg.style_config()["font_name"] == "Noto Sans CJK SC"
+    assert cfg.style_config()["primary_lang"] == "zh"
+    assert cfg.style_config()["preset"] == "default"
+
+
+def test_style_config_preset_overridden_by_style():
+    cfg = Config({"style": {"preset": "bold_en", "font_size_ratio": 0.09}}, None, _PRESETS)
+    style = cfg.style_config()
+    assert style["primary_lang"] == "en"          # 预设展开
+    assert style["en_bold"] is True               # 预设展开
+    assert style["font_size_ratio"] == 0.09       # [style] 显式键覆盖
+
+
+def test_style_config_missing_preset_raises():
+    cfg = Config({"style": {"preset": "nope"}}, None, _PRESETS)
+    with pytest.raises(RuntimeError, match="样式预设不存在: nope（可用: bold_en, default）"):
+        cfg.style_config()
+
+
+def test_load_config_reads_presets(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "presets.toml").write_text(
+        "[mypreset]\nfont_name = \"Serif\"\nprimary_lang = \"en\"\n",
+        encoding="utf-8",
+    )
+    cfg = load_config()
+    assert cfg.presets["mypreset"]["font_name"] == "Serif"
+    assert cfg.style_config()["font_name"] == "Noto Sans CJK SC"  # 未引用时不受影响

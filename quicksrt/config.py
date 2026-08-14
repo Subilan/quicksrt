@@ -1,7 +1,11 @@
-"""配置加载：config.toml（业务配置）+ 环境变量（密钥）。
+"""配置加载：config.toml（业务配置）+ 环境变量（密钥）+ presets.toml（样式预设）。
 
-优先级：环境变量 > config.toml > 内置默认值。
+优先级：环境变量 > config.toml > presets.toml > 内置默认值。
 支持 .env 文件（仅当存在时读取，便于本地开发）。
+
+样式预设：presets.toml 每段一个命名预设（段名 = 预设名），字段与 [style] 一致；
+[style] 中写 preset = "预设名" 引用，预设为基底、[style] 显式键覆盖，
+不写 preset 则只用 [style]（内置默认）。
 """
 
 from __future__ import annotations
@@ -112,9 +116,10 @@ def _load_dotenv(path: Path = Path(".env")) -> None:
 
 
 class Config:
-    def __init__(self, raw: dict, path: Path | None = None):
+    def __init__(self, raw: dict, path: Path | None = None, presets: dict | None = None):
         self.raw = raw
         self.path = path
+        self.presets = presets or {}
 
     @property
     def work_dir(self) -> Path:
@@ -126,6 +131,18 @@ class Config:
 
     def section(self, name: str) -> dict:
         return self.raw.get(name, {})
+
+    def style_config(self) -> dict:
+        """展开 [style]：preset 引用（presets.toml）为基底，[style] 显式键覆盖。"""
+        style = dict(self.section("style"))
+        preset_name = style.get("preset")
+        if preset_name:
+            preset = self.presets.get(preset_name)
+            if preset is None:
+                names = ", ".join(sorted(self.presets)) or "无（可创建 presets.toml）"
+                raise RuntimeError(f"样式预设不存在: {preset_name}（可用: {names}）")
+            style = {**preset, **style}
+        return style
 
     @property
     def asr_endpoint(self) -> str:
@@ -152,7 +169,14 @@ def load_config(path: str | Path | None = None) -> Config:
         raw = _deep_merge(raw, user_raw)
     else:
         print(f"[config] 未找到 {cfg_path}，使用内置默认配置")
-    return Config(raw, cfg_path)
+
+    presets: dict = {}
+    presets_path = cfg_path.parent / "presets.toml"
+    if presets_path.exists():
+        presets = tomllib.loads(presets_path.read_text(encoding="utf-8"))
+    else:
+        print(f"[config] 未找到 {presets_path}，样式预设不可用")
+    return Config(raw, cfg_path, presets)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:

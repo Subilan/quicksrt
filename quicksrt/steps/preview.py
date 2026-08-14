@@ -63,7 +63,7 @@ def run(cfg, workdir: Path, log: logging.Logger, res: str = "auto", index: int =
     width, height, res_label = resolve_size(res, workdir)
     item = pick_item(items, index)
 
-    style_cfg = cfg.section("style")
+    style_cfg = cfg.style_config()
     mode, primary_lang = burn._style_mode(style_cfg)
     ass = burn.build_ass_items(
         [item], style_cfg, {"width": width, "height": height}, mode=mode, primary_lang=primary_lang

@@ -92,6 +92,9 @@ def test_run_builds_ass_and_calls_ffmpeg(tmp_path, monkeypatch):
                 return {"mode": "bilingual", "primary_lang": "zh", "font_name": "F"}
             return {"background": "black"}
 
+        def style_config(self):
+            return self.section("style")
+
     calls = []
 
     def fake_run_cmd(cmd, log, timeout=None):
@@ -124,6 +127,9 @@ def test_run_custom_background(tmp_path, monkeypatch):
             if name == "style":
                 return {"mode": "mono", "primary_lang": "en"}
             return {"background": "#202020"}
+
+        def style_config(self):
+            return self.section("style")
 
     calls = []
 
