@@ -24,8 +24,9 @@ _SPLIT_PUNCT = "，、；"
 
 
 def strip_end_punct(text: str) -> str:
-    """去掉末尾句号（含重复句号与后续空白），保留问号/感叹号等语气标点。"""
-    return text.rstrip().rstrip("。．").rstrip()
+    """去掉末尾的句号/逗号/顿号/分号（含重复与后续空白），
+    保留问号/感叹号等语气标点。拆句保留在分句末尾的逗号也会被去掉。"""
+    return text.rstrip().rstrip("。．，、；").rstrip()
 
 
 def _inner_split(text: str, max_chars: int) -> list[str]:
@@ -168,9 +169,10 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> Path:
     for e, z in zip(en_segs, zh_segs):
         zt = z.text.strip()
         et = e.text.strip()
-        if strip:
-            zt = strip_end_punct(zt)
         zh_parts = split_zh(zt, max_chars)
+        # 去标点要在拆句之后再做一次：拆出的分句末尾可能暴露新的逗号/句号
+        if strip:
+            zh_parts = [strip_end_punct(p) for p in zh_parts]
         en_parts = split_en(et, zh_parts)
         if len(zh_parts) != len(en_parts):
             en_parts = [et] * len(zh_parts)  # 防御：切分异常时英文整段复制
