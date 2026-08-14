@@ -8,6 +8,10 @@ output_dir = "dist"
 [download]
 # yt-dlp 格式选择：最佳视频+最佳音频，自动合并
 format = "bv*+ba/b"
+# 从浏览器读取 cookies（绕过反爬）；留空则不用
+cookies_from_browser = "chrome"
+# 远程组件（JS challenge solver）；留空则不用
+remote_components = "ejs:github"
 
 [asr]
 # 阿里云百炼 非实时语音识别（Qwen3-ASR-Flash-Filetrans，异步）
@@ -56,5 +60,7 @@ shadow = 1
 [burn]
 # 留空则按源编码器自动选择（libx264/libx265/libsvtav1）
 encoder = ""
-crf = 18
-preset = "slow"
+# 留空则用各编码器默认（libx264: crf 18/slow，libx265: crf 22/medium，svt-av1: crf 30/preset 8）；
+# 设置后对所有编码器生效（注意 svt-av1 的 preset 只接受数字 0-13）
+crf = ""
+preset = ""

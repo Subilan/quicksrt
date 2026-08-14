@@ -48,6 +48,7 @@ def download(
     url: str,
     config: Path = typer.Option(Path("config.toml"), "--config", "-c", help="配置文件路径"),
     force: bool = typer.Option(False, "--force", "-f", help="忽略断点强制重跑"),
+    fmt: str | None = typer.Option(None, "--format", help="yt-dlp 格式选择（覆盖 config.toml）"),
 ):
     """下载 YouTube 视频到 work/<video_id>/video.mp4"""
     cfg = _cfg(config)
@@ -55,7 +56,7 @@ def download(
     log = util.setup_logging(workdir)
     if force:
         _reset_step(workdir, download_step.STEP)
-    video_id = download_step.run(url, cfg, workdir, log)
+    video_id = download_step.run(url, cfg, workdir, log, fmt=fmt)
     typer.echo(f"video_id: {video_id}")
 
 

@@ -61,7 +61,9 @@ def translate_batch(
     api_key: str, cfg: dict, batch: list[dict], log: logging.Logger, retries: int
 ) -> list[dict]:
     expected_ids = {b["id"] for b in batch}
+    id_to_item = {b["id"]: b for b in batch}
     last_err = None
+    out: list[dict] = []
     for attempt in range(1, retries + 1):
         try:
             out = _call_deepseek(
@@ -78,7 +80,24 @@ def translate_batch(
             last_err = e
             log.warning("[translate] 批次失败（第 %d 次）: %s", attempt, e)
             time.sleep(2 * attempt)
-    raise RuntimeError(f"批次翻译重试 %d 次仍失败: {last_err}" % retries)
+
+    # 重试耗尽：对缺失条目逐条翻译；单条也失败则保留原文兜底
+    done_ids = {o["id"] for o in out}
+    missing = sorted(expected_ids - done_ids)
+    log.warning("[translate] 批次重试 %d 次仍失败，对缺失的 %d 条逐条翻译: %s", retries, len(missing), missing)
+    for mid in missing:
+        try:
+            single = _call_deepseek(
+                api_key, cfg["base_url"], cfg["model"], float(cfg.get("temperature", 0.3)),
+                [id_to_item[mid]], log,
+            )
+            out.extend(single)
+        except Exception as e:  # noqa: BLE001
+            log.warning("[translate] 单条翻译失败 id=%d，保留原文: %s", mid, e)
+            out.append({"id": mid, "text": id_to_item[mid]["text"]})
+    if {o["id"] for o in out} != expected_ids:
+        raise RuntimeError(f"批次最终结果仍不完整，最后一次错误: {last_err}")
+    return out
 
 
 def _batches(segments: list[Segment], max_chars: int) -> list[list[dict]]:

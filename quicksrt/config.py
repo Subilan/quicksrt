@@ -19,6 +19,8 @@ output_dir = "dist"
 
 [download]
 format = "bv*+ba/b"
+cookies_from_browser = "chrome"
+remote_components = "ejs:github"
 
 [asr]
 provider = "aliyun"
@@ -62,8 +64,8 @@ outline = 2
 shadow = 1
 
 [burn]
-crf = 18
-preset = "slow"
+crf = ""
+preset = ""
 """
 
 

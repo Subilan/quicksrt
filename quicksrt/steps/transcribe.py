@@ -23,12 +23,14 @@ SUBMIT_PATH = "/services/audio/asr/transcription"
 TASK_PATH = "/tasks/{task_id}"
 
 
-def _headers(api_key: str) -> dict:
-    return {
+def _headers(api_key: str, async_header: bool = True) -> dict:
+    headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "X-DashScope-Async": "enable",
     }
+    if async_header:
+        headers["X-DashScope-Async"] = "enable"
+    return headers
 
 
 def submit_task(endpoint: str, api_key: str, audio_url: str, asr_cfg: dict) -> str:
@@ -58,7 +60,7 @@ def submit_task(endpoint: str, api_key: str, audio_url: str, asr_cfg: dict) -> s
 def poll_task(endpoint: str, api_key: str, task_id: str, interval: float, timeout: float, log: logging.Logger) -> dict:
     deadline = time.time() + timeout
     while True:
-        resp = requests.get(endpoint + TASK_PATH.format(task_id=task_id), headers=_headers(api_key), timeout=30)
+        resp = requests.get(endpoint + TASK_PATH.format(task_id=task_id), headers=_headers(api_key, async_header=False), timeout=30)
         if resp.status_code != 200:
             raise RuntimeError(f"ASR 任务查询失败 (HTTP {resp.status_code}): {resp.text[:500]}")
         data = resp.json()

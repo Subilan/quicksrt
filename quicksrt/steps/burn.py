@@ -17,7 +17,7 @@ STEP = "burn"
 ENCODER_DEFAULTS = {
     "libx264": {"preset": "slow", "crf": 18},
     "libx265": {"preset": "medium", "crf": 22},
-    "libsvtav1": {"preset": "6", "crf": 30},
+    "libsvtav1": {"preset": "8", "crf": 30},
 }
 
 
