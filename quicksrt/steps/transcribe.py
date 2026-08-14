@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 import requests
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from .. import util
 from ..models import Segment, Word, load_segments, save_segments
@@ -21,6 +22,51 @@ STEP = "transcribe"
 
 SUBMIT_PATH = "/services/audio/asr/transcription"
 TASK_PATH = "/tasks/{task_id}"
+
+
+# ---------- ASR 结果解析模型 ----------
+# 原始响应时间为毫秒整数，模型内统一转为秒；end <= start 的异常片段自动修正
+
+class _AsrWord(BaseModel):
+    text: str = ""
+    begin_time: float
+    end_time: float
+
+    @field_validator("begin_time", "end_time", mode="before")
+    @classmethod
+    def _ms_to_sec(cls, v: object) -> float:
+        return int(v) / 1000.0
+
+
+class _AsrSentence(BaseModel):
+    begin_time: float
+    end_time: float
+    text: str = ""
+    words: list[_AsrWord] = Field(default_factory=list)
+
+    @field_validator("begin_time", "end_time", mode="before")
+    @classmethod
+    def _ms_to_sec(cls, v: object) -> float:
+        return int(v) / 1000.0
+
+    @field_validator("words", mode="before")
+    @classmethod
+    def _words_none_to_empty(cls, v: object) -> object:
+        return v or []
+
+    @model_validator(mode="after")
+    def _fix_min_duration(self) -> "_AsrSentence":
+        if self.end_time <= self.begin_time:
+            self.end_time = self.begin_time + 0.1
+        return self
+
+
+class _AsrTranscript(BaseModel):
+    sentences: list[_AsrSentence] = Field(default_factory=list)
+
+
+class _AsrResult(BaseModel):
+    transcripts: list[_AsrTranscript] = Field(default_factory=list)
 
 
 def _headers(api_key: str, async_header: bool = True) -> dict:
@@ -100,24 +146,24 @@ def download_result(data: dict, workdir: Path, log: logging.Logger) -> Path:
 
 
 def parse_result(raw_path: Path) -> list[Segment]:
-    raw = json.loads(raw_path.read_text(encoding="utf-8"))
-    sentences = []
-    for transcript in raw.get("transcripts", []):
-        sentences.extend(transcript.get("sentences", []))
+    try:
+        raw = _AsrResult.model_validate_json(raw_path.read_text(encoding="utf-8"))
+    except ValidationError as e:
+        raise RuntimeError(f"ASR 结果解析失败（{raw_path.name}）: {e}") from e
+    sentences = [s for t in raw.transcripts for s in t.sentences]
     if not sentences:
         raise RuntimeError("ASR 结果中无 sentences，请检查 asr_raw.json")
 
-    segments = []
-    for idx, s in enumerate(sentences):
-        start = int(s["begin_time"]) / 1000.0
-        end = int(s["end_time"]) / 1000.0
-        if end <= start:
-            end = start + 0.1
-        words = []
-        for w in s.get("words", []) or []:
-            words.append(Word(w.get("text", ""), int(w["begin_time"]) / 1000.0, int(w["end_time"]) / 1000.0))
-        segments.append(Segment(id=idx, start=start, end=end, text=s.get("text", ""), words=words))
-    return segments
+    return [
+        Segment(
+            id=idx,
+            start=s.begin_time,
+            end=s.end_time,
+            text=s.text,
+            words=[Word(text=w.text, start=w.begin_time, end=w.end_time) for w in s.words],
+        )
+        for idx, s in enumerate(sentences)
+    ]
 
 
 def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> list[Segment]:

@@ -1,7 +1,7 @@
 """translate：DeepSeek 分批翻译英文 segments 为简体中文。
 
 每批独立落盘 work/<id>/batches/tr_NNNN.json，支持细粒度断点续跑。
-结构化输出：pydantic 模型逐条校验，配合 json_object 模式约束返回为合法 JSON；
+结构化输出：pydantic 模型一次 model_validate_json 完成解析、结构校验与逐条校验，配合 json_object 模式约束返回为合法 JSON；
 批次并行提交（max_concurrency 可配）；HTTP 层对 429/5xx 退避重试。
 上下文：config 的 context_template 模板（占位符取 meta.json 字段）渲染为背景信息注入 system prompt。
 """
@@ -30,6 +30,12 @@ class TranslationItem(BaseModel):
 
     id: int
     text: str
+
+
+class TranslationResponse(BaseModel):
+    """DeepSeek 返回的包装结构：translations 数组逐条对应输入。"""
+
+    translations: list[TranslationItem]
 
 
 # ---------- 提示词 ----------
@@ -133,21 +139,12 @@ def _chat(
 
 
 def _parse_batch(content: str) -> list[dict]:
-    """按 pydantic 模型逐条校验解析模型输出：必须为 {"translations": [...]} 包装结构。"""
+    """一次 model_validate_json 完成 JSON 解析、结构校验与逐条校验。"""
     try:
-        obj = json.loads(content)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"DeepSeek 返回非 JSON: {content[:500]}") from e
-    if not isinstance(obj, dict) or not isinstance(obj.get("translations"), list):
-        raise TypeError(f"DeepSeek 返回缺少 translations 数组: {content[:500]}")
-    items: list[dict] = []
-    for it in obj["translations"]:
-        try:
-            item = TranslationItem.model_validate(it)
-        except ValidationError as e:
-            raise RuntimeError(f"译文条目不符合结构: {it}") from e
-        items.append({"id": item.id, "text": item.text})
-    return items
+        resp = TranslationResponse.model_validate_json(content)
+    except ValidationError as e:
+        raise RuntimeError(f"DeepSeek 返回非 JSON 或不符合结构: {content[:500]}") from e
+    return [it.model_dump() for it in resp.translations]
 
 
 def _build_messages(batch: list[dict], context: str) -> list[dict]:
