@@ -56,9 +56,12 @@ class _ContextMap(dict):
 
 
 def _render_context(template: str, meta: dict) -> str:
-    def clip(v) -> str:
-        s = str(v).strip()
-        return s if len(s) <= _CONTEXT_MAX_LEN else s[:_CONTEXT_MAX_LEN] + "…"
+    def clip(v):
+        # 仅字符串做截断；数字等保持原类型，让模板里的格式说明符（如 {duration:.0f}）生效
+        if isinstance(v, str):
+            s = v.strip()
+            return s if len(s) <= _CONTEXT_MAX_LEN else s[:_CONTEXT_MAX_LEN] + "…"
+        return v
 
     return template.format_map(_ContextMap({k: clip(v) for k, v in meta.items()}))
 
