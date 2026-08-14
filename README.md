@@ -17,8 +17,7 @@ YouTube 视频 → 中文硬字幕烧录的一站式管线。每一环都是独�
 
 ```bash
 uv sync
-cp config.toml.example config.toml   # 填写 OSS bucket 等业务配置
-cp presets.toml.example presets.toml # 字幕样式预设（含 default 预设）
+cp config.toml.example config.toml   # 填写 OSS bucket 等业务配置（样式预设见 presets.toml，默认含 default）
 cp .env.example .env                 # 填写三个 API key（见下）
 ```
 
