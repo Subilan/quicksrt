@@ -49,6 +49,17 @@ uv run quicksrt clean -y                 # 删除中间产物
 
 翻译环节使用结构化输出（`json_object` 模式 + pydantic 逐条校验），批次并行翻译（`[translate] max_concurrency`）。可通过 `[translate] context_template` 注入视频上下文（占位符取 meta.json 字段，如 `{title}` `{description}` `{uploader}` `{url}`，缺失渲染为空串；修改模板会触发重译）。
 
+## 开发
+
+```bash
+uv sync                 # 安装依赖（含 dev 组的 pytest）
+uv run pytest           # 运行全部单元测试（纯本地，不涉及外部系统）
+```
+
+测试覆盖：核心数据模型序列化（models）、翻译批次解析与重试/兜底逻辑（translate，HTTP 层 mock）、ASR 结果解析（transcribe）、refine 拆句/标点/时间分配、SRT 规范化与渲染、config 合并、util 工具、ASS 样式生成。外部系统（OSS、DeepSeek/ASR HTTP 调用、ffmpeg、yt-dlp）不在测试范围。
+
+提交信息遵循 Conventional Commits：`fix:` 修 bug、`feat:` 新功能、`refactor:` 重构（行为不变）、`docs:` 文档、`chore:` 杂项；scope 可选（如 `fix(cli):`）。描述小写开头、祈使句、不加句号。
+
 ## 产物结构
 
 ```
