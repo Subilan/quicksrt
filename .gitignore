@@ -6,3 +6,4 @@ config.toml
 work/
 dist/
 *.egg-info/
+.DS_Store
