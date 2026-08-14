@@ -4,10 +4,12 @@
 字号/边距按目标分辨率比例计算，预览即"烧进该分辨率视频"的效果。
 分辨率预设 720p/1080p/4k，或 auto（源视频分辨率，需 video.mp4 存在）。
 默认渲染第一条字幕，--index 可指定任意条；语言模式取 [style] 配置。
+CLI 加 --inline-image 时生成 iTerm2 内联图片转义序列，终端内直接展示。
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -41,6 +43,12 @@ def pick_item(items: list[dict], index: int) -> dict:
     if index < 1 or index > len(items):
         raise RuntimeError(f"--index 超出范围: {index}（共 {len(items)} 条）")
     return {**items[index - 1], "start": 0.0, "end": 1.0}
+
+
+def inline_image_escape(path: Path, width: str = "100%") -> str:
+    """生成 iTerm2 内联图片转义序列（协议见 iterm2.com/documentation-images.html）。"""
+    b64 = base64.b64encode(path.read_bytes()).decode()
+    return f"\x1b]1337;File=inline=1;width={width}:" + b64 + "\a"
 
 
 def run(cfg, workdir: Path, log: logging.Logger, res: str = "auto", index: int = 1) -> Path:

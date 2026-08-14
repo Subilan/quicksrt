@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import typer
@@ -208,12 +209,18 @@ def preview(
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     res: str = typer.Option("auto", "--res", help="输出分辨率: auto/720p/1080p/4k（auto 取源视频分辨率）"),
     index: int = typer.Option(1, "--index", help="渲染第几条字幕（从 1 开始，默认 1）"),
+    inline: bool = typer.Option(False, "--inline-image", help="在 iTerm2 终端内直接展示预览图"),
 ):
     """纯色背景渲染单条字幕的 PNG 预览（语言模式取 [style] 配置）"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
     out = preview_step.run(cfg, workdir, log, res=res, index=index)
+    if inline:
+        if os.environ.get("TERM_PROGRAM") != "iTerm.app":
+            typer.echo("警告: 当前终端不是 iTerm2，内联图片可能无法显示", err=True)
+        typer.echo(preview_step.inline_image_escape(out))
+        typer.echo()
     typer.echo(f"preview 完成: {out}")
 
 

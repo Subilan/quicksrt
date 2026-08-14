@@ -1,12 +1,13 @@
 """preview：分辨率解析、条目选取、ASS 生成与 ffmpeg 命令（run 的 ffmpeg 调用 mock）。"""
 
+import base64
 import json
 import logging
 
 import pytest
 
 from quicksrt.steps import preview
-from quicksrt.steps.preview import RESOLUTIONS, pick_item, resolve_size
+from quicksrt.steps.preview import RESOLUTIONS, inline_image_escape, pick_item, resolve_size
 
 _LOG = logging.getLogger("test_preview")
 
@@ -55,6 +56,24 @@ def test_pick_item_out_of_range():
         pick_item(_ITEMS, 3)
     with pytest.raises(RuntimeError, match="超出范围"):
         pick_item(_ITEMS, 0)
+
+
+# ---------- inline_image_escape ----------
+
+def test_inline_image_escape_roundtrip(tmp_path):
+    img = tmp_path / "t.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    esc = inline_image_escape(img)
+    assert esc.startswith("\x1b]1337;File=inline=1;width=100%:")
+    assert esc.endswith("\a")
+    payload = esc.split(":", 1)[1].removesuffix("\a")
+    assert base64.b64decode(payload) == img.read_bytes()
+
+
+def test_inline_image_escape_custom_width(tmp_path):
+    img = tmp_path / "t.png"
+    img.write_bytes(b"abc")
+    assert inline_image_escape(img, "60%").startswith("\x1b]1337;File=inline=1;width=60%:")
 
 
 # ---------- run ----------
