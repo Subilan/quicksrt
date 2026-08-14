@@ -34,8 +34,8 @@ def _pick_encoder(video_codec: str) -> str:
 
 def _ass_ts(seconds: float) -> str:
     cs = max(0, int(round(seconds * 100)))
-    h, rem = divmod(cs, 360_000)
-    m, rem = divmod(rem, 60_000)
+    h, rem = divmod(cs, 360_000)  # 1 小时 = 360000 厘秒
+    m, rem = divmod(rem, 6_000)  # 1 分钟 = 6000 厘秒
     s, c = divmod(rem, 100)
     return f"{h}:{m:02d}:{s:02d}.{c:02d}"
 
@@ -79,7 +79,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             hh, mm, ss = t.replace(",", ".").split(":")
             return int(hh) * 3600 + int(mm) * 60 + float(ss)
 
-        text = _ass_escape(parts[2].replace("\r", "").replace("\n", "\\N"))
+        # 注意顺序：先转义 \ { }，再把 \n 换成 ASS 换行符 \N（\N 的反斜杠不能再被转义）
+        text = _ass_escape(parts[2].replace("\r", ""))
+        text = text.replace("\n", "\\N")
         lines.append(
             f"Dialogue: 0,{_ass_ts(to_sec(ts[0]))},{_ass_ts(to_sec(ts[1]))},Default,,0,0,0,,{text}"
         )
