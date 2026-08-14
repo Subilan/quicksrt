@@ -77,6 +77,51 @@ def _style_mode(cfg_style: dict) -> tuple[str, str]:
     return mode, primary
 
 
+# 背景块定位常量（em 相对字号，Noto Sans CJK 实测：行距=1.0em，字形底距块底 0.167em）
+_BG_LINE_PITCH = 1.0     # 行距 = 字号
+_BG_GLYPH_EM = 0.8       # 字形高（含下行空隙）≈ 0.8em
+_BG_DESCENT = 0.167      # 末行字形底到文本块底的空隙
+
+
+def _bg_color_parts(bg_color: str) -> tuple[str, str]:
+    """拆分 &HAABBGGRR -> (\1c 颜色, \1a alpha)。"""
+    c = bg_color.strip()
+    return "&H" + c[4:10], "&H" + c[2:4]
+
+
+def _bg_rect(w: float, h: float) -> str:
+    """直角矩形 drawing 路径（原点在块左上，\an2\pos 定位左下角）。"""
+    return f"m 0 0 l {w:.2f} 0 l {w:.2f} {h:.2f} l 0 {h:.2f} l 0 0"
+
+
+def _bg_dialogue(it: dict, width: int, height: int, fontsize: int, en_size: int,
+                 margin_v: int, margin_h: int, cfg_style: dict, mode: str, primary_lang: str) -> str:
+    """背景块 Dialogue：全宽半透明矩形，紧贴文本块（分层渲染，先于文本绘制）。
+
+    libass 实测行为：行内 drawing 配合 \\an2\\pos(W/2, y) 时，块精确渲染为
+    x 0..W（1:1 像素，与字号无关）、底边对齐 \\pos 的 y。
+    """
+    pad = float(cfg_style.get("bg_padding_ratio", 0.35)) * fontsize
+    # 每行字号：主语言行用 fontsize，副语言行用 en_size（双语时副语言在后）
+    p_lines = it[primary_lang].count("\n") + 1
+    pitches = [fontsize] * p_lines
+    if mode == "bilingual":
+        s_lines = it["en" if primary_lang == "zh" else "zh"].count("\n") + 1
+        pitches += [en_size] * s_lines
+    last = pitches[-1]
+    # 块高 = 前 n-1 行行距和 + 末行字形高 + 上下内边距；块底 = 文本块底减末行 descent 空隙再加下内边距
+    block_h = sum(pitches[:-1]) + _BG_GLYPH_EM * last + 2 * pad
+    block_bottom = height - margin_v - _BG_DESCENT * last + pad
+    bg_color = cfg_style.get("bg_color", "&H80000000")
+    color, alpha = _bg_color_parts(bg_color)
+    return (
+        f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,"
+        f"{{\\an2\\pos({width / 2:.1f},{block_bottom:.2f})}}"
+        f"{{\\1c{color}&\\1a{alpha}&\\3a&HFF&\\4a&HFF&}}"
+        f"{{\\p1}}{_bg_rect(width, block_h)}{{\\p0}}"
+    )
+
+
 def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
     """某语言的字体系列、粗体、斜体（en 用 en_* 配置，zh 用主配置）。"""
     if lang == "en":
@@ -132,6 +177,10 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
             text = f"{primary}\\N{{\\rSecondary}}{secondary}"
         else:
             text = primary
+        if bool(cfg_style.get("bg_enabled", False)):
+            lines.append(
+                _bg_dialogue(it, width, height, fontsize, en_size, margin_v, margin_h, cfg_style, mode, primary_lang)
+            )
         lines.append(
             f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{text}"
         )

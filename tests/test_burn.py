@@ -5,6 +5,8 @@ import pytest
 from quicksrt.steps.burn import (
     _ass_escape,
     _ass_ts,
+    _bg_color_parts,
+    _bg_dialogue,
     _lang_style,
     _style_block,
     _style_mode,
@@ -131,3 +133,47 @@ def test_build_ass_bold_italic():
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0" in ass
     assert "Style: Secondary,EN-Font,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,1,0,0" in ass
+
+
+# ---------- 字幕背景（全宽半透明矩形条） ----------
+
+def test_bg_color_parts():
+    assert _bg_color_parts("&H80000000") == ("&H000000", "&H80")
+    assert _bg_color_parts("&H33FF0000") == ("&HFF0000", "&H33")  # BBGGRR 蓝 + alpha 33
+
+
+def test_build_ass_bg_dialogue_emitted_first():
+    style = {**_STYLE, "bg_enabled": True, "bg_color": "&H80000000", "bg_padding_ratio": 0.35}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    assert ass.count("Dialogue: 0,") == 2  # 背景 + 文本
+    bg, text = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
+    assert "\\p1" in bg and "\\p0" in bg
+    assert "\\an2\\pos(" in bg
+    assert "\\1c&H000000&\\1a&H80&" in bg
+    assert "\\3a&HFF&\\4a&HFF&" in bg  # 描边/阴影透明
+    assert bg.startswith("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,")
+    assert "你好\\N{\\rSecondary}hello" in text  # 文本行不受影响
+
+
+def test_build_ass_bg_disabled_by_default():
+    ass = build_ass_items(_ITEMS, _STYLE, _PROBE)
+    assert ass.count("Dialogue: 0,") == 1
+    assert "\\p1" not in ass
+
+
+def test_bg_dialogue_geometry_mono_single_line():
+    style = {**_STYLE, "bg_padding_ratio": 0.35}
+    it = {"id": 0, "src_id": 0, "start": 0.0, "end": 1.0, "zh": "你好", "en": "hi"}
+    bg = _bg_dialogue(it, 1920, 1080, 54, 32, 54, 58, style, "mono", "zh")
+    # 块高 = 0.8*54 + 2*0.35*54 = 81；块底 = 1080-54-0.167*54+0.35*54 ≈ 1035.88
+    assert "m 0 0 l 1920.00 0 l 1920.00 81.00 l 0 81.00 l 0 0" in bg
+    assert "\\pos(960.0,1035.88)" in bg
+
+
+def test_bg_dialogue_geometry_bilingual():
+    style = {**_STYLE, "bg_padding_ratio": 0.35}
+    it = {"id": 0, "src_id": 0, "start": 0.0, "end": 1.0, "zh": "你好", "en": "hi"}
+    bg = _bg_dialogue(it, 1920, 1080, 54, 32, 54, 58, style, "bilingual", "zh")
+    # 块高 = 54(主行) + 0.8*32(末行英文) + 2*18.9 = 117.4；块底 = 1080-54-0.167*32+18.9 ≈ 1039.56
+    assert "l 1920.00 117.40 l 0 117.40" in bg
+    assert "\\pos(960.0,1039.56)" in bg
