@@ -69,6 +69,7 @@ def run(url: str, cfg, workdir: Path, log: logging.Logger, fmt: str | None = Non
             "url": url,
             "video_id": video_id,
             "title": info.get("title") or video_id,
+            "description": info.get("description") or "",
             "duration": float(info.get("duration") or 0),
             "uploader": info.get("uploader") or "",
             "steps": {**meta.get("steps", {}), STEP: "done"},
