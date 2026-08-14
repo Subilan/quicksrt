@@ -47,8 +47,6 @@ model = "deepseek-chat"
 temperature = 0.3
 batch_max_chars = 3000
 max_retries = 3
-# 结构化输出模式：json_object（DeepSeek 官方支持）/ json_schema（pydantic 约束，用于兼容其他网关）
-response_format = "json_object"
 # 并发翻译的批次数量（DeepSeek 限流宽松，默认 4）
 max_concurrency = 4
 # 翻译上下文模板：占位符取 meta.json 字段（{title} {description} {uploader} {url} 等），缺失渲染为空；留空不附加

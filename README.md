@@ -47,7 +47,7 @@ uv run quicksrt clean -y                 # 删除中间产物
 
 分步命令默认操作最新的 work 目录，多视频时用 `-i <video_id>` 指定。`--force` 强制重跑单环节；中断后重跑同一命令会从断点继续（ASR 任务按 task_id 恢复轮询，翻译按批次缓存跳过）。
 
-翻译环节默认按 `json_object` 模式结构化输出，批次并行翻译（`[translate] max_concurrency`）。可通过 `[translate] context_template` 注入视频上下文（占位符取 meta.json 字段，如 `{title}` `{description}` `{uploader}` `{url}`，缺失渲染为空串；修改模板会触发重译）。
+翻译环节使用结构化输出（`json_object` 模式 + pydantic 逐条校验），批次并行翻译（`[translate] max_concurrency`）。可通过 `[translate] context_template` 注入视频上下文（占位符取 meta.json 字段，如 `{title}` `{description}` `{uploader}` `{url}`，缺失渲染为空串；修改模板会触发重译）。
 
 ## 产物结构
 

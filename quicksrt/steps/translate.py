@@ -1,7 +1,7 @@
 """translate：DeepSeek 分批翻译英文 segments 为简体中文。
 
 每批独立落盘 work/<id>/batches/tr_NNNN.json，支持细粒度断点续跑。
-结构化输出：pydantic 模型生成 JSON Schema，配合 DeepSeek json_schema 模式严格约束返回结构；
+结构化输出：pydantic 模型逐条校验，配合 json_object 模式约束返回为合法 JSON；
 批次并行提交（max_concurrency 可配）；HTTP 层对 429/5xx 退避重试。
 上下文：config 的 context_template 模板（占位符取 meta.json 字段）渲染为背景信息注入 system prompt。
 """
@@ -32,14 +32,6 @@ class TranslationItem(BaseModel):
     text: str
 
 
-class TranslationBatch(BaseModel):
-    """模型必须返回的结构：与输入 id 一一对应的译文数组。"""
-
-    translations: list[TranslationItem]
-
-
-TRANSLATION_SCHEMA = TranslationBatch.model_json_schema()
-
 # ---------- 提示词 ----------
 
 BASE_SYSTEM_PROMPT = (
@@ -48,10 +40,6 @@ BASE_SYSTEM_PROMPT = (
     "1. 输出与输入条目数完全一致，逐条对应，严禁合并、拆分、遗漏或改变顺序；\n"
     "2. 每条译文都要放在与输入相同的 id 下；\n"
     "3. 译文自然口语化，保留标点，长度不要超过原文的 1.5 倍；\n"
-)
-
-_SCHEMA_FORMAT_REQ = "4. 严格遵守给定的 JSON Schema，只输出结构允许的内容。"
-_OBJECT_FORMAT_REQ = (
     "4. 只输出一个 JSON 对象，格式为 {\"translations\": [{\"id\": 数字, \"text\": \"译文\"}, ...]}。\n"
     "   样例输出: {\"translations\": [{\"id\": 1, \"text\": \"欢迎回来。\"}]}\n"
     "   不要输出任何其他内容。"
@@ -75,10 +63,10 @@ def _render_context(template: str, meta: dict) -> str:
     return template.format_map(_ContextMap({k: clip(v) for k, v in meta.items()}))
 
 
-def _system_prompt(mode: str, context: str) -> str:
-    prompt = BASE_SYSTEM_PROMPT + (_SCHEMA_FORMAT_REQ if mode == "json_schema" else _OBJECT_FORMAT_REQ)
+def _system_prompt(context: str) -> str:
     if not context:
-        return prompt
+        return BASE_SYSTEM_PROMPT
+    prompt = BASE_SYSTEM_PROMPT
     return (
         prompt
         + "\n\n<video_context>\n"
@@ -91,26 +79,12 @@ def _system_prompt(mode: str, context: str) -> str:
 
 # ---------- DeepSeek 调用层 ----------
 
-class SchemaUnsupportedError(RuntimeError):
-    """模型/网关不支持 json_schema 模式，调用方应降级为 json_object。"""
-
-
-def _response_format(mode: str) -> dict:
-    if mode == "json_object":
-        return {"type": "json_object"}
-    return {
-        "type": "json_schema",
-        "json_schema": {"name": "translations", "schema": TRANSLATION_SCHEMA, "strict": True},
-    }
-
-
 def _chat(
     api_key: str,
     base_url: str,
     model: str,
     temperature: float,
     messages: list[dict],
-    response_format: dict,
     log: logging.Logger,
     max_tokens: int,
 ) -> str:
@@ -122,7 +96,7 @@ def _chat(
         "stream": False,
         # 按输入规模估算输出上限，防止 JSON 被截断（DeepSeek 官方建议）
         "max_tokens": max_tokens,
-        "response_format": response_format,
+        "response_format": {"type": "json_object"},
     }
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     last_err: Exception | None = None
@@ -151,21 +125,12 @@ def _chat(
             log.warning("[translate] HTTP %d（第 %d 次）: %s", resp.status_code, attempt, body)
             time.sleep(2**attempt)
             continue
-        if resp.status_code == 400 and ("json_schema" in body or "response_format" in body):
-            raise SchemaUnsupportedError(body)
         raise RuntimeError(f"DeepSeek 调用失败 (HTTP {resp.status_code}): {body}")
     raise RuntimeError(f"DeepSeek 请求重试耗尽，最后一次错误: {last_err}")
 
 
-def _parse_batch(content: str, mode: str) -> list[dict]:
-    """按 pydantic 模型严格解析模型输出；json_object 模式兼容包装/裸数组两种形态。"""
-    if mode == "json_schema":
-        try:
-            batch = TranslationBatch.model_validate_json(content)
-        except (json.JSONDecodeError, ValidationError) as e:
-            raise RuntimeError(f"DeepSeek 返回不符合 JSON Schema: {content[:500]}") from e
-        return [{"id": it.id, "text": it.text} for it in batch.translations]
-
+def _parse_batch(content: str) -> list[dict]:
+    """按 pydantic 模型逐条校验解析模型输出；兼容包装/裸数组两种形态。"""
     try:
         obj = json.loads(content)
     except json.JSONDecodeError as e:
@@ -183,9 +148,9 @@ def _parse_batch(content: str, mode: str) -> list[dict]:
     return items
 
 
-def _build_messages(batch: list[dict], context: str, mode: str) -> list[dict]:
+def _build_messages(batch: list[dict], context: str) -> list[dict]:
     return [
-        {"role": "system", "content": _system_prompt(mode, context)},
+        {"role": "system", "content": _system_prompt(context)},
         {"role": "user", "content": json.dumps(batch, ensure_ascii=False)},
     ]
 
@@ -199,18 +164,16 @@ def _estimate_max_tokens(batch: list[dict]) -> int:
 def _call_deepseek(
     api_key: str, cfg: dict, batch: list[dict], context: str, log: logging.Logger
 ) -> list[dict]:
-    mode = cfg.get("response_format", "json_object")
     content = _chat(
         api_key,
         cfg["base_url"],
         cfg["model"],
         float(cfg.get("temperature", 0.3)),
-        _build_messages(batch, context, mode),
-        _response_format(mode),
+        _build_messages(batch, context),
         log,
         _estimate_max_tokens(batch),
     )
-    return _parse_batch(content, mode)
+    return _parse_batch(content)
 
 
 def translate_batch(
@@ -230,11 +193,6 @@ def translate_batch(
                     f"缺失 id: {sorted(expected_ids - out_ids)}，多余 id: {sorted(out_ids - expected_ids)}）"
                 )
             return out
-        except SchemaUnsupportedError as e:
-            # 网关不支持 json_schema：降级 json_object 并重试，后续批次沿用降级模式
-            log.warning("[translate] 网关不支持 json_schema，降级 json_object: %s", e)
-            cfg["response_format"] = "json_object"
-            last_err = e
         except Exception as e:  # noqa: BLE001
             last_err = e
             log.warning("[translate] 批次失败（第 %d 次）: %s", attempt, e)
