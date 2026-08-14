@@ -18,7 +18,7 @@ from pathlib import Path
 import typer
 
 from . import util
-from .config import load_config
+from .config import Config, load_config
 from .steps import burn as burn_step
 from .steps import download as download_step
 from .steps import extract as extract_step
@@ -31,7 +31,7 @@ from .steps import upload as upload_step
 app = typer.Typer(help="quicksrt: YouTube 视频下载 -> ASR -> 翻译 -> 烧录中文硬字幕", no_args_is_help=True)
 
 
-def _cfg(config_path: Path) -> "Config":  # noqa: F821
+def _cfg(config_path: Path) -> Config:
     return load_config(config_path)
 
 

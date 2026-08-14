@@ -15,7 +15,7 @@ from pathlib import Path
 import requests
 
 from .. import util
-from ..models import Segment, Word, save_segments
+from ..models import Segment, Word, load_segments, save_segments
 
 STEP = "transcribe"
 
@@ -136,7 +136,7 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> list[Se
 
     if not force and util.step_done(meta, STEP, **{"asr.model": asr_cfg["model"]}) and seg_path.exists():
         log.info("[transcribe] 已完成，跳过")
-        return util.load_segments(seg_path)
+        return load_segments(seg_path)
 
     endpoint = cfg.asr_endpoint
 
