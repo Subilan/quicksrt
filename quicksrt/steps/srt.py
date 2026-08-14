@@ -38,15 +38,16 @@ def _split_lines(text: str, max_chars: int, max_lines: int) -> list[str]:
 
 
 def normalize(segments: list[Segment], cfg_srt: dict) -> list[Segment]:
-    max_dur = float(cfg_srt.get("max_duration", 7.0))
-    min_dur = float(cfg_srt.get("min_duration", 0.5))
+    # max_duration <= 0 表示不截断：ASR 时长即真实语音时长，截断会导致字幕在语音未完时消失
+    max_dur = float(cfg_srt.get("max_duration", 0))
+    min_dur = float(cfg_srt.get("min_duration", 1.0))
     max_chars = int(cfg_srt.get("max_line_chars", 42))
     max_lines = int(cfg_srt.get("max_lines", 2))
 
     out = [Segment(id=s.id, start=s.start, end=s.end, text=s.text.strip(), words=s.words) for s in segments]
     for s in out:
         dur = s.end - s.start
-        if dur > max_dur:
+        if max_dur > 0 and dur > max_dur:
             s.end = s.start + max_dur
         elif dur < min_dur:
             s.end = s.start + min_dur

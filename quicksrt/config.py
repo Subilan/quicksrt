@@ -51,8 +51,10 @@ max_retries = 3
 [srt]
 max_line_chars = 42
 max_lines = 2
-max_duration = 7.0
-min_duration = 0.5
+# 字幕时长下限：短于此时长的句子被拉长到该值（中文显示下限 1s）
+min_duration = 1.0
+# 字幕时长上限：<=0 表示不截断（ASR 时长即真实语音时长，截断会让字幕在语音未完时消失）
+max_duration = 0
 
 [style]
 font_name = "Noto Sans CJK SC"
