@@ -2,10 +2,12 @@
 
 编码策略：按源视频编码器选择对应编码器（libx264/libx265/libsvtav1），
 CRF 质量模式 + 慢速 preset，尽量降低二次编码损失。
+优先使用 refined.json（双语 ASS），否则回退到 subs.srt 单语。
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -42,6 +44,53 @@ def _ass_ts(seconds: float) -> str:
 
 def _ass_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+
+
+def _style_block(width: int, height: int, cfg_style: dict, fontsize: int, margin_v: int, margin_h: int, name: str = "Default") -> str:
+    return (
+        f"Style: {name},{cfg_style.get('font_name', 'Noto Sans CJK SC')},{fontsize},"
+        f"{cfg_style.get('primary_color', '&H00FFFFFF')},&H000000FF,"
+        f"{cfg_style.get('outline_color', '&H00000000')},&H80000000,"
+        f"0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},"
+        f"2,{margin_h},{margin_h},{margin_v},1"
+    )
+
+
+def build_ass_bilingual(items: list[dict], cfg_style: dict, probe: dict, bilingual: bool = True) -> str:
+    """从 refined 条目生成 ASS：上中文（Default）下英文（English，更小字号）。"""
+    width, height = probe["width"], probe["height"]
+    fontsize = max(12, round(height * float(cfg_style.get("font_size_ratio", 0.05))))
+    margin_v = round(height * float(cfg_style.get("margin_v_ratio", 0.05)))
+    margin_h = round(width * 0.03)
+    en_size = max(10, round(fontsize * float(cfg_style.get("en_font_ratio", 0.6))))
+
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {width}
+PlayResY: {height}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h)}
+"""
+    if bilingual:
+        header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "English") + "\n"
+    header += "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+
+    lines = [header]
+    for it in items:
+        zh = _ass_escape(it["zh"]).replace("\n", "\\N")
+        if bilingual:
+            en = _ass_escape(it["en"]).replace("\n", "\\N")
+            text = f"{zh}\\N{{\\rEnglish}}{en}"
+        else:
+            text = zh
+        lines.append(
+            f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{text}"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def build_ass(srt_path: Path, cfg_style: dict, probe: dict) -> str:
@@ -116,7 +165,16 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
         log.warning("[burn] 源像素格式 %s 非 yuv420p，输出将转为 yuv420p（兼容性优先）", probe["pix_fmt"])
 
     ass_path = workdir / "subs.ass"
-    ass_path.write_text(build_ass(srt_path, cfg.section("style"), probe), encoding="utf-8")
+    style_cfg = cfg.section("style")
+    refined_path = workdir / "refined.json"
+    if refined_path.exists():
+        items = json.loads(refined_path.read_text(encoding="utf-8"))
+        bilingual = bool(style_cfg.get("bilingual", True))
+        ass = build_ass_bilingual(items, style_cfg, probe, bilingual=bilingual)
+        log.info("[burn] 使用 refined 字幕（%d 条，%s）", len(items), "双语" if bilingual else "仅中文")
+    else:
+        ass = build_ass(srt_path, style_cfg, probe)
+    ass_path.write_text(ass, encoding="utf-8")
 
     enc = encoder or _pick_encoder(probe["video_codec"])
     if enc not in ENCODER_DEFAULTS:

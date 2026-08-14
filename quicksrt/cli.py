@@ -22,6 +22,7 @@ from .config import load_config
 from .steps import burn as burn_step
 from .steps import download as download_step
 from .steps import extract as extract_step
+from .steps import refine as refine_step
 from .steps import srt as srt_step
 from .steps import transcribe as transcribe_step
 from .steps import translate as translate_step
@@ -130,7 +131,7 @@ def srt(
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     force: bool = typer.Option(False, "--force", "-f"),
 ):
-    """由中文 segments 生成规范化 subs.srt"""
+    """由中文 segments 生成规范化 subs.srt（refined.json 存在时输出双语）"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
@@ -138,6 +139,22 @@ def srt(
         _reset_step(workdir, srt_step.STEP)
     path = srt_step.run(cfg, workdir, log, force=force)
     typer.echo(f"srt 完成: {path}")
+
+
+@app.command()
+def refine(
+    video_id: str | None = typer.Option(None, "--video-id", "-i"),
+    config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
+    force: bool = typer.Option(False, "--force", "-f"),
+):
+    """显示层后处理：拆句/标点/接缝优化，产出 refined.json（双语）"""
+    cfg = _cfg(config)
+    workdir = _workdir(cfg, video_id)
+    log = util.setup_logging(workdir)
+    if force:
+        _reset_step(workdir, refine_step.STEP)
+    path = refine_step.run(cfg, workdir, log, force=force)
+    typer.echo(f"refine 完成: {path}")
 
 
 @app.command()
@@ -163,7 +180,7 @@ def all(
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     force: bool = typer.Option(False, "--force", "-f", help="忽略所有断点强制重跑"),
 ):
-    """全链路：download -> extract -> upload -> transcribe -> translate -> srt -> burn"""
+    """全链路：download -> extract -> upload -> transcribe -> translate -> refine -> srt -> burn"""
     cfg = _cfg(config)
     log = util.setup_logging(cfg.work_dir)
     if force:
@@ -171,12 +188,13 @@ def all(
     video_id = download_step.run(url, cfg, cfg.work_dir, log)
     workdir = cfg.work_dir / video_id
     if force:
-        for step in (extract_step, upload_step, transcribe_step, translate_step, srt_step, burn_step):
+        for step in (extract_step, upload_step, transcribe_step, translate_step, refine_step, srt_step, burn_step):
             _reset_step(workdir, step.STEP)
     extract_step.run(cfg, workdir, log)
     upload_step.run(cfg, workdir, log)
     transcribe_step.run(cfg, workdir, log)
     translate_step.run(cfg, workdir, log)
+    refine_step.run(cfg, workdir, log)
     srt_step.run(cfg, workdir, log)
     out = burn_step.run(cfg, workdir, log)
     typer.echo(f"全链路完成: {out}")
@@ -199,7 +217,7 @@ def status(
     typer.echo(f"url      : {meta.get('url', '-')}")
     typer.echo(f"时长     : {meta.get('duration', 0):.1f}s")
     steps = meta.get("steps", {})
-    for name in ("download", "extract", "upload", "transcribe", "translate", "srt", "burn"):
+    for name in ("download", "extract", "upload", "transcribe", "translate", "refine", "srt", "burn"):
         mark = "✓" if steps.get(name) == "done" else "·"
         typer.echo(f"  {mark} {name}")
     if meta.get("audio_url"):

@@ -3,7 +3,7 @@
 YouTube 视频 → 中文硬字幕烧录的一站式管线。每一环都是独立命令，产物落盘支持断点续跑。
 
 ```
-下载(yt-dlp) → 提取音频(ffmpeg) → 上传OSS(预签名URL) → ASR转写(阿里云百炼) → 翻译(DeepSeek) → 生成SRT → 烧录(libass)
+下载(yt-dlp) → 提取音频(ffmpeg) → 上传OSS(预签名URL) → ASR转写(阿里云百炼) → 翻译(DeepSeek) → refine(拆句/标点/接缝/双语) → 生成SRT → 烧录(libass)
 ```
 
 ## 环境要求
@@ -38,6 +38,7 @@ uv run quicksrt download <youtube-url>   # 或分步执行
 uv run quicksrt extract
 uv run quicksrt transcribe
 uv run quicksrt translate
+uv run quicksrt refine   # 显示层优化（拆句/标点/接缝/双语）
 uv run quicksrt srt
 uv run quicksrt burn
 uv run quicksrt status                   # 查看流水线状态
@@ -57,6 +58,7 @@ work/<video_id>/
   segments_en.json   英文 segments（统一格式）
   segments_zh.json   中文 segments
   batches/tr_*.json  翻译批次缓存
+  refined.json        refine 后双语条目（拆句/标点/接缝已处理）
   subs.srt / subs.ass 字幕中间产物
 dist/<标题>.mp4      最终成品
 ```
@@ -65,7 +67,8 @@ dist/<标题>.mp4      最终成品
 
 - `[asr]` 默认 `qwen3-asr-flash-filetrans`（异步文件转写，支持字级时间戳，最长 12 小时），源语言 `en`
 - `[oss]` 音频上传到私有 bucket，生成 7 天预签名 URL 供 ASR 拉取，用完即弃
-- `[style]` 烧录样式：Noto Sans CJK SC、白字黑描边、字号/边距按分辨率比例
+- `[refine]` 显示层优化：拆句（分句标点处、可配置最大长度）、去句号、填平微小间隔
+- `[style]` 烧录样式：Noto Sans CJK SC、白字黑描边、字号/边距按分辨率比例、双语（上中文下英文，英文字号默认 60%）
 - `[burn]` 按源编码器自动选 libx264/libx265/libsvtav1，CRF 质量模式，音频流 copy 不重编码
 
 已知限制：硬烧录必然重编码，画质损失通过 CRF 18 + slow preset 控制；源视频为 HDR 时未做色域转换，输出按 yuv420p 处理。

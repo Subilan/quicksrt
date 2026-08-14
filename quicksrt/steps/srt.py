@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -69,10 +70,22 @@ def render(segments: list[Segment]) -> str:
     return "\n".join(blocks)
 
 
+def render_bilingual(items: list[dict]) -> str:
+    """渲染双语 SRT：中文在上，英文在下（纯文本，样式由播放器/ASS 决定）。"""
+    blocks = []
+    for idx, it in enumerate(items, start=1):
+        text = f"{it['zh']}\n{it['en']}"
+        blocks.append(
+            f"{idx}\n{util.fmt_ts(it['start'])} --> {util.fmt_ts(it['end'])}\n{text}\n"
+        )
+    return "\n".join(blocks)
+
+
 def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> Path:
     meta = util.load_meta(workdir)
     zh_path = workdir / "segments_zh.json"
     srt_path = workdir / "subs.srt"
+    refined_path = workdir / "refined.json"
     if not zh_path.exists():
         raise FileNotFoundError(f"缺少 {zh_path.name}（先执行 translate）")
 
@@ -80,9 +93,14 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> Path:
         log.info("[srt] 已完成，跳过")
         return srt_path
 
-    segments = normalize(load_segments(zh_path), cfg.section("srt"))
-    srt_path.write_text(render(segments), encoding="utf-8")
+    if refined_path.exists():
+        items = json.loads(refined_path.read_text(encoding="utf-8"))
+        srt_path.write_text(render_bilingual(items), encoding="utf-8")
+        log.info("[srt] 完成（refine 后双语）: %d 条字幕 -> %s", len(items), srt_path)
+    else:
+        segments = normalize(load_segments(zh_path), cfg.section("srt"))
+        srt_path.write_text(render(segments), encoding="utf-8")
+        log.info("[srt] 完成（原始）: %d 条字幕 -> %s", len(segments), srt_path)
     meta["steps"] = {**meta.get("steps", {}), STEP: "done"}
     util.save_meta(workdir, meta)
-    log.info("[srt] 完成: %d 条字幕 -> %s", len(segments), srt_path)
     return srt_path

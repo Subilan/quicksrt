@@ -49,6 +49,15 @@ min_duration = 1.0
 # 字幕时长上限：<=0 表示不截断（ASR 时长即真实语音时长，截断会让字幕在语音未完时消失）
 max_duration = 0
 
+[refine]
+# 前后接缝优化：相邻字幕间隔小于该值（秒）时，前一条延伸至后一条开始，消除闪烁
+min_gap = 0.35
+# 标点优化：去掉字幕末尾的句号（中文字幕惯例不带句号）
+strip_end_punct = true
+# 拆句优化：单条字幕文本最大长度（字符），超过则在分句标点（，、；）处拆成多条；
+# 拆出的条目时间按字符数比例从原句时间中分配
+max_chars = 42
+
 [style]
 # libass 烧录样式（ASS 风格）
 font_name = "Noto Sans CJK SC"
@@ -58,6 +67,9 @@ primary_color = "&H00FFFFFF"
 outline_color = "&H00000000"
 outline = 2
 shadow = 1
+# 双语字幕：上中文下英文，英文用更小字号（相对中文字号比例）
+bilingual = true
+en_font_ratio = 0.6
 
 [burn]
 # 留空则按源编码器自动选择（libx264/libx265/libsvtav1）
