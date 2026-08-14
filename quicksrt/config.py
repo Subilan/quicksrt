@@ -1,0 +1,131 @@
+"""配置加载：config.toml（业务配置）+ 环境变量（密钥）。
+
+优先级：环境变量 > config.toml > 内置默认值。
+支持 .env 文件（仅当存在时读取，便于本地开发）。
+"""
+
+from __future__ import annotations
+
+import os
+import tomllib
+from pathlib import Path
+
+DEFAULT_CONFIG_PATH = Path("config.toml")
+
+DEFAULT_TOML = """
+[project]
+work_dir = "work"
+output_dir = "dist"
+
+[download]
+format = "bv*+ba/b"
+
+[asr]
+provider = "aliyun"
+model = "qwen3-asr-flash-filetrans"
+region = "cn-beijing"
+# endpoint 留空时按 region + 环境变量 DASHSCOPE_WORKSPACE_ID 自动拼接
+endpoint = ""
+language = "en"
+enable_words = true
+enable_itn = false
+poll_interval = 5
+poll_timeout = 7200
+
+[oss]
+bucket = ""
+endpoint = "oss-cn-beijing.aliyuncs.com"
+upload_prefix = "audio"
+presign_days = 7
+
+[translate]
+provider = "deepseek"
+base_url = "https://api.deepseek.com"
+model = "deepseek-chat"
+temperature = 0.3
+batch_max_chars = 3000
+max_retries = 3
+
+[srt]
+max_line_chars = 42
+max_lines = 2
+max_duration = 7.0
+min_duration = 0.5
+
+[style]
+font_name = "Noto Sans CJK SC"
+font_size_ratio = 0.05
+margin_v_ratio = 0.05
+primary_color = "&H00FFFFFF"
+outline_color = "&H00000000"
+outline = 2
+shadow = 1
+
+[burn]
+crf = 18
+preset = "slow"
+"""
+
+
+def _load_dotenv(path: Path = Path(".env")) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
+class Config:
+    def __init__(self, raw: dict, path: Path | None = None):
+        self.raw = raw
+        self.path = path
+
+    @property
+    def work_dir(self) -> Path:
+        return Path(self.raw["project"]["work_dir"])
+
+    @property
+    def output_dir(self) -> Path:
+        return Path(self.raw["project"]["output_dir"])
+
+    def section(self, name: str) -> dict:
+        return self.raw.get(name, {})
+
+    @property
+    def asr_endpoint(self) -> str:
+        asr = self.section("asr")
+        endpoint = asr.get("endpoint", "").strip()
+        if endpoint:
+            return endpoint.rstrip("/")
+        workspace_id = os.getenv("DASHSCOPE_WORKSPACE_ID", "").strip()
+        if not workspace_id:
+            raise RuntimeError(
+                "未配置 ASR endpoint。请在 config.toml 设置 [asr] endpoint，"
+                "或设置环境变量 DASHSCOPE_WORKSPACE_ID 以便按 region 自动拼接"
+            )
+        region = asr.get("region", "cn-beijing")
+        return f"https://{workspace_id}.{region}.maas.aliyuncs.com/api/v1"
+
+
+def load_config(path: str | Path | None = None) -> Config:
+    _load_dotenv()
+    cfg_path = Path(path) if path else DEFAULT_CONFIG_PATH
+    raw: dict = tomllib.loads(DEFAULT_TOML)
+    if cfg_path.exists():
+        user_raw = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+        raw = _deep_merge(raw, user_raw)
+    else:
+        print(f"[config] 未找到 {cfg_path}，使用内置默认配置")
+    return Config(raw, cfg_path)
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
+    return base

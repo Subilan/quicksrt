@@ -1,0 +1,20 @@
+[project]
+name = "quicksrt"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "oss2>=2.19.1",
+    "requests>=2.34.2",
+    "typer>=0.27.1",
+    "yt-dlp>=2026.7.4",
+]
+
+[project.scripts]
+quicksrt = "quicksrt.cli:app"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+include = ["quicksrt*"]
+exclude = ["references*"]
