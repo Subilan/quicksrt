@@ -41,6 +41,7 @@ uv run quicksrt translate
 uv run quicksrt refine   # 显示层优化（拆句/标点/接缝/双语）
 uv run quicksrt srt
 uv run quicksrt burn
+uv run quicksrt preview --res 1080p   # 纯色背景渲染单条字幕 PNG 预览（样式预览，默认第 1 条，--index 指定）
 uv run quicksrt status                   # 查看流水线状态
 uv run quicksrt clean -y                 # 删除中间产物
 ```
@@ -56,7 +57,7 @@ uv sync                 # 安装依赖（含 dev 组的 pytest）
 uv run pytest           # 运行全部单元测试（纯本地，不涉及外部系统）
 ```
 
-测试覆盖：核心数据模型序列化（models）、翻译批次解析与重试/兜底逻辑（translate，HTTP 层 mock）、ASR 结果解析（transcribe）、refine 拆句/标点/时间分配、SRT 规范化与渲染、config 合并、util 工具、ASS 样式生成。外部系统（OSS、DeepSeek/ASR HTTP 调用、ffmpeg、yt-dlp）不在测试范围。
+测试覆盖：核心数据模型序列化（models）、翻译批次解析与重试/兜底逻辑（translate，HTTP 层 mock）、ASR 结果解析（transcribe）、refine 拆句/标点/时间分配、SRT 规范化与渲染、config 合并、util 工具、ASS 样式与语言模式生成（burn）、preview 分辨率解析/条目选取/命令构建。外部系统（OSS、DeepSeek/ASR HTTP 调用、ffmpeg、yt-dlp）不在测试范围。
 
 提交信息遵循 Conventional Commits：`fix:` 修 bug、`feat:` 新功能、`refactor:` 重构（行为不变）、`docs:` 文档、`chore:` 杂项；scope 可选（如 `fix(cli):`）。描述小写开头、祈使句、不加句号。
 
@@ -73,7 +74,8 @@ work/<video_id>/
   batches/tr_*.json  翻译批次缓存
   refined.json        refine 后双语条目（拆句/标点/接缝已处理）
   subs.srt / subs.ass 字幕中间产物
-dist/<标题>.mp4      最终成品
+dist/<标题>.mp4           最终成品
+  <标题>_preview_<分辨率>.png  预览 PNG（preview 命令）
 ```
 
 ## 配置要点（config.toml）
@@ -81,7 +83,8 @@ dist/<标题>.mp4      最终成品
 - `[asr]` 默认 `qwen3-asr-flash-filetrans`（异步文件转写，支持字级时间戳，最长 12 小时），源语言 `en`
 - `[oss]` 音频上传到私有 bucket，生成 7 天预签名 URL 供 ASR 拉取，用完即弃
 - `[refine]` 显示层优化：拆句（分句标点处、可配置最大长度）、去句号、填平微小间隔
-- `[style]` 烧录样式：Noto Sans CJK SC、白字黑描边、字号/边距按分辨率比例、双语（上中文下英文，英文字号默认 60%）
+- `[style]` 烧录样式：Noto Sans CJK SC、白字黑描边、字号/边距按分辨率比例；语言模式 `mode`（`bilingual` 双语 / `mono` 单语）+ `primary_lang`（`zh`/`en`，主语言在上大字号、副语言在下小字号）；中文样式 `font_name`/`font_bold`/`font_italic`，英文独立样式 `en_font_name`/`en_bold`/`en_italic`/`en_font_ratio`（英文字号默认 60%）
+- `[preview]` 预览背景色 `background`（ffmpeg color 源支持的颜色名或 `#RRGGBB`，默认 black）
 - `[burn]` 按源编码器自动选 libx264/libx265/libsvtav1，CRF 质量模式，音频流 copy 不重编码
 
 已知限制：硬烧录必然重编码，画质损失通过 CRF 18 + slow preset 控制；源视频为 HDR 时未做色域转换，输出按 yuv420p 处理。

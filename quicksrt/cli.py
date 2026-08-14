@@ -8,6 +8,7 @@
   quicksrt translate        DeepSeek 翻译为简体中文
   quicksrt srt              生成 SRT 字幕
   quicksrt burn             烧录字幕（libass，不重编码音频）
+  quicksrt preview          纯色背景渲染单条字幕 PNG 预览（字幕样式预览）
   quicksrt all <url>        全链路执行
 """
 
@@ -22,6 +23,7 @@ from .config import Config, load_config
 from .steps import burn as burn_step
 from .steps import download as download_step
 from .steps import extract as extract_step
+from .steps import preview as preview_step
 from .steps import refine as refine_step
 from .steps import srt as srt_step
 from .steps import transcribe as transcribe_step
@@ -198,6 +200,21 @@ def all(
     srt_step.run(cfg, workdir, log)
     out = burn_step.run(cfg, workdir, log)
     typer.echo(f"全链路完成: {out}")
+
+
+@app.command()
+def preview(
+    video_id: str | None = typer.Option(None, "--video-id", "-i"),
+    config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
+    res: str = typer.Option("auto", "--res", help="输出分辨率: auto/720p/1080p/4k（auto 取源视频分辨率）"),
+    index: int = typer.Option(1, "--index", help="渲染第几条字幕（从 1 开始，默认 1）"),
+):
+    """纯色背景渲染单条字幕的 PNG 预览（语言模式取 [style] 配置）"""
+    cfg = _cfg(config)
+    workdir = _workdir(cfg, video_id)
+    log = util.setup_logging(workdir)
+    out = preview_step.run(cfg, workdir, log, res=res, index=index)
+    typer.echo(f"preview 完成: {out}")
 
 
 @app.command()

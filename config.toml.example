@@ -71,9 +71,22 @@ primary_color = "&H00FFFFFF"
 outline_color = "&H00000000"
 outline = 2
 shadow = 1
-# 双语字幕：上中文下英文，英文用更小字号（相对中文字号比例）
-bilingual = true
+# 语言模式：bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
+mode = "bilingual"
+# 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
+primary_lang = "zh"
+# 中文样式（粗体/斜体）
+font_bold = false
+font_italic = false
+# 英文独立字体与样式（英文做主/副语言均生效，字号跟随主/副位置）
+en_font_name = "Noto Sans CJK SC"
 en_font_ratio = 0.6
+en_bold = false
+en_italic = false
+
+[preview]
+# 预览背景色（ffmpeg color 源支持的颜色名或 #RRGGBB）
+background = "black"
 
 [burn]
 # 留空则按源编码器自动选择（libx264/libx265/libsvtav1）

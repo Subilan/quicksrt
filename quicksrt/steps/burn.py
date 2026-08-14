@@ -3,6 +3,11 @@
 编码策略：按源视频编码器选择对应编码器（libx264/libx265/libsvtav1），
 CRF 质量模式 + 慢速 preset，尽量降低二次编码损失。
 优先使用 refined.json（双语 ASS），否则回退到 subs.srt 单语。
+
+语言模式（[style] 配置）：
+- mode: bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
+- primary_lang: zh | en（主语言，大字号在上）
+中文样式用 font_name/font_bold/font_italic，英文用 en_font_name/en_bold/en_italic。
 """
 
 from __future__ import annotations
@@ -46,23 +51,63 @@ def _ass_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
 
 
-def _style_block(width: int, height: int, cfg_style: dict, fontsize: int, margin_v: int, margin_h: int, name: str = "Default") -> str:
+def _style_block(
+    width: int, height: int, cfg_style: dict, fontsize: int, margin_v: int, margin_h: int,
+    name: str = "Default", font_name: str | None = None, bold: bool = False, italic: bool = False,
+) -> str:
+    font = font_name or cfg_style.get("font_name", "Noto Sans CJK SC")
     return (
-        f"Style: {name},{cfg_style.get('font_name', 'Noto Sans CJK SC')},{fontsize},"
+        f"Style: {name},{font},{fontsize},"
         f"{cfg_style.get('primary_color', '&H00FFFFFF')},&H000000FF,"
         f"{cfg_style.get('outline_color', '&H00000000')},&H80000000,"
-        f"0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},"
+        f"{1 if bold else 0},{1 if italic else 0},0,0,100,100,0,0,1,"
+        f"{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},"
         f"2,{margin_h},{margin_h},{margin_v},1"
     )
 
 
-def build_ass_bilingual(items: list[dict], cfg_style: dict, probe: dict, bilingual: bool = True) -> str:
-    """从 refined 条目生成 ASS：上中文（Default）下英文（English，更小字号）。"""
+def _style_mode(cfg_style: dict) -> tuple[str, str]:
+    """解析语言模式 (mode, primary_lang)，兼容旧版 bilingual 布尔。"""
+    mode = str(cfg_style.get("mode", "")).lower()
+    if mode not in ("bilingual", "mono"):
+        mode = "bilingual" if bool(cfg_style.get("bilingual", True)) else "mono"
+    primary = str(cfg_style.get("primary_lang", "zh")).lower()
+    if primary not in ("zh", "en"):
+        primary = "zh"
+    return mode, primary
+
+
+def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
+    """某语言的字体系列、粗体、斜体（en 用 en_* 配置，zh 用主配置）。"""
+    if lang == "en":
+        return (
+            cfg_style.get("en_font_name") or cfg_style.get("font_name", "Noto Sans CJK SC"),
+            bool(cfg_style.get("en_bold", False)),
+            bool(cfg_style.get("en_italic", False)),
+        )
+    return (
+        cfg_style.get("font_name", "Noto Sans CJK SC"),
+        bool(cfg_style.get("font_bold", False)),
+        bool(cfg_style.get("font_italic", False)),
+    )
+
+
+def build_ass_items(items: list[dict], cfg_style: dict, probe: dict,
+                    mode: str = "bilingual", primary_lang: str = "zh") -> str:
+    """从 refined 条目生成 ASS。
+
+    主语言在上（Default，大字号），双语时副语言在下（Secondary，更小字号）；
+    primary_lang 决定主语言是 zh 还是 en，mono 模式只渲染主语言。
+    """
     width, height = probe["width"], probe["height"]
     fontsize = max(12, round(height * float(cfg_style.get("font_size_ratio", 0.05))))
     margin_v = round(height * float(cfg_style.get("margin_v_ratio", 0.05)))
     margin_h = round(width * 0.03)
     en_size = max(10, round(fontsize * float(cfg_style.get("en_font_ratio", 0.6))))
+
+    secondary_lang = "en" if primary_lang == "zh" else "zh"
+    p_font, p_bold, p_italic = _lang_style(cfg_style, primary_lang)
+    s_font, s_bold, s_italic = _lang_style(cfg_style, secondary_lang)
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -73,20 +118,20 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h)}
+{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", p_font, p_bold, p_italic)}
 """
-    if bilingual:
-        header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "English") + "\n"
+    if mode == "bilingual":
+        header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "Secondary", s_font, s_bold, s_italic) + "\n"
     header += "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
 
     lines = [header]
     for it in items:
-        zh = _ass_escape(it["zh"]).replace("\n", "\\N")
-        if bilingual:
-            en = _ass_escape(it["en"]).replace("\n", "\\N")
-            text = f"{zh}\\N{{\\rEnglish}}{en}"
+        primary = _ass_escape(it[primary_lang]).replace("\n", "\\N")
+        if mode == "bilingual":
+            secondary = _ass_escape(it[secondary_lang]).replace("\n", "\\N")
+            text = f"{primary}\\N{{\\rSecondary}}{secondary}"
         else:
-            text = zh
+            text = primary
         lines.append(
             f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{text}"
         )
@@ -151,7 +196,16 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
     title = re.sub(r'[\\/:*?"<>|\s]+', "_", meta.get("title", workdir.name)).strip("_")[:80]
     output = out_dir / f"{title}.mp4"
 
-    if not force and util.step_done(meta, STEP) and output.exists():
+    style_cfg = cfg.section("style")
+    mode, primary_lang = _style_mode(style_cfg)
+    style_key = {k: style_cfg.get(k) for k in (
+        "mode", "primary_lang", "bilingual", "font_name", "en_font_name",
+        "font_size_ratio", "en_font_ratio", "margin_v_ratio",
+        "primary_color", "outline_color", "outline", "shadow",
+        "font_bold", "font_italic", "en_bold", "en_italic",
+    )}
+
+    if not force and util.step_done(meta, STEP, style=style_key) and output.exists():
         log.info("[burn] 已完成，跳过")
         return output
 
@@ -165,13 +219,11 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
         log.warning("[burn] 源像素格式 %s 非 yuv420p，输出将转为 yuv420p（兼容性优先）", probe["pix_fmt"])
 
     ass_path = workdir / "subs.ass"
-    style_cfg = cfg.section("style")
     refined_path = workdir / "refined.json"
     if refined_path.exists():
         items = json.loads(refined_path.read_text(encoding="utf-8"))
-        bilingual = bool(style_cfg.get("bilingual", True))
-        ass = build_ass_bilingual(items, style_cfg, probe, bilingual=bilingual)
-        log.info("[burn] 使用 refined 字幕（%d 条，%s）", len(items), "双语" if bilingual else "仅中文")
+        ass = build_ass_items(items, style_cfg, probe, mode=mode, primary_lang=primary_lang)
+        log.info("[burn] 使用 refined 字幕（%d 条，mode=%s primary=%s）", len(items), mode, primary_lang)
     else:
         ass = build_ass(srt_path, style_cfg, probe)
     ass_path.write_text(ass, encoding="utf-8")
@@ -199,7 +251,7 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
     util.run_cmd(cmd, log, timeout=None)
 
     meta["steps"] = {**meta.get("steps", {}), STEP: "done"}
-    meta["burn"] = {"encoder": enc, "crf": crf, "preset": preset}
+    meta["burn"] = {"encoder": enc, "crf": crf, "preset": preset, "style": style_key}
     util.save_meta(workdir, meta)
     log.info("[burn] 完成: %s", output)
     return output
