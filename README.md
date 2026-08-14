@@ -42,6 +42,7 @@ uv run quicksrt refine   # 显示层优化（拆句/标点/接缝/双语）
 uv run quicksrt srt
 uv run quicksrt burn
 uv run quicksrt preview --res 1080p   # 纯色背景渲染单条字幕 PNG 预览（样式预览，默认第 1 条，--index 指定）
+uv run quicksrt preview --res 1080p --background white  # 覆盖背景色（或 #202020 等 ffmpeg 颜色值）
 uv run quicksrt preview --inline-image  # 同上，并在 iTerm2 终端内直接展示图片
 uv run quicksrt status                   # 查看流水线状态
 uv run quicksrt clean -y                 # 删除中间产物

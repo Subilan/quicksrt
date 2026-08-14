@@ -51,7 +51,9 @@ def inline_image_escape(path: Path, width: str = "100%") -> str:
     return f"\x1b]1337;File=inline=1;width={width}:" + b64 + "\a"
 
 
-def run(cfg, workdir: Path, log: logging.Logger, res: str = "auto", index: int = 1) -> Path:
+def run(cfg, workdir: Path, log: logging.Logger, res: str = "auto", index: int = 1,
+        background: str | None = None) -> Path:
+    """background 为 None 时取 [preview] background（默认 black）。"""
     meta = util.load_meta(workdir)
     refined_path = workdir / "refined.json"
     if not refined_path.exists():
@@ -76,7 +78,7 @@ def run(cfg, workdir: Path, log: logging.Logger, res: str = "auto", index: int =
     title = re.sub(r'[\\/:*?"<>|\s]+', "_", meta.get("title", workdir.name)).strip("_")[:80]
     output = out_dir / f"{title}_preview_{res_label}.png"
 
-    bg = cfg.section("preview").get("background", "black")
+    bg = background or cfg.section("preview").get("background", "black")
     color_src = f"color=c={bg}:s={width}x{height}:d=1"
     # filter 内路径用单引号包裹，防止空格/特殊字符问题
     filter_str = f"ass=filename='{str(ass_path).replace(chr(39), chr(92) + chr(39))}'"

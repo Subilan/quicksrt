@@ -144,6 +144,29 @@ def test_run_custom_background(tmp_path, monkeypatch):
     assert "Style: Secondary" not in ass  # mono 无副样式
 
 
+def test_run_background_override(tmp_path, monkeypatch):
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
+
+    class FakeCfg:
+        output_dir = tmp_path / "dist"
+
+        def section(self, name):
+            if name == "style":
+                return {"mode": "mono", "primary_lang": "zh"}
+            return {"background": "#202020"}  # config 值
+
+        def style_config(self):
+            return self.section("style")
+
+    calls = []
+    monkeypatch.setattr(preview.util, "run_cmd", lambda cmd, log, timeout=None: calls.append(cmd))
+    preview.run(FakeCfg(), workdir, _LOG, res="720p", background="white")
+    assert "color=c=white:s=1280x720:d=1" in calls[0]  # CLI 参数优先于 config
+
+
 def test_run_without_refined(tmp_path):
     workdir = tmp_path / "work"
     workdir.mkdir()

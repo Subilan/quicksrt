@@ -209,13 +209,14 @@ def preview(
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     res: str = typer.Option("auto", "--res", help="输出分辨率: auto/720p/1080p/4k（auto 取源视频分辨率）"),
     index: int = typer.Option(1, "--index", help="渲染第几条字幕（从 1 开始，默认 1）"),
+    background: str | None = typer.Option(None, "--background", help="预览背景色（覆盖 [preview] background，ffmpeg color 支持的值，如 white/#202020）"),
     inline: bool = typer.Option(False, "--inline-image", help="在 iTerm2 终端内直接展示预览图"),
 ):
     """纯色背景渲染单条字幕的 PNG 预览（语言模式取 [style] 配置）"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
-    out = preview_step.run(cfg, workdir, log, res=res, index=index)
+    out = preview_step.run(cfg, workdir, log, res=res, index=index, background=background)
     if inline:
         if os.environ.get("TERM_PROGRAM") != "iTerm.app":
             typer.echo("警告: 当前终端不是 iTerm2，内联图片可能无法显示", err=True)
