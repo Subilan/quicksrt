@@ -19,3 +19,8 @@ package = true
 [tool.setuptools.packages.find]
 include = ["quicksrt*"]
 exclude = ["references*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
