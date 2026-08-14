@@ -130,16 +130,15 @@ def _chat(
 
 
 def _parse_batch(content: str) -> list[dict]:
-    """按 pydantic 模型逐条校验解析模型输出；兼容包装/裸数组两种形态。"""
+    """按 pydantic 模型逐条校验解析模型输出：必须为 {"translations": [...]} 包装结构。"""
     try:
         obj = json.loads(content)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"DeepSeek 返回非 JSON: {content[:500]}") from e
-    translations = obj.get("translations") if isinstance(obj, dict) else obj
-    if not isinstance(translations, list):
+    if not isinstance(obj, dict) or not isinstance(obj.get("translations"), list):
         raise TypeError(f"DeepSeek 返回缺少 translations 数组: {content[:500]}")
     items: list[dict] = []
-    for it in translations:
+    for it in obj["translations"]:
         try:
             item = TranslationItem.model_validate(it)
         except ValidationError as e:
