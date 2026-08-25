@@ -6,9 +6,9 @@
 默认渲染第一条字幕，--index 可指定任意条；语言模式取 [style] 配置。
 CLI 加 --inline-image 时生成 iTerm2 内联图片转义序列，终端内直接展示。
 
---text-only：不渲染背景帧，纯色背景渲染后按非背景色包围盒裁剪，输出紧贴文字的 PNG。
-截取背景色：未指定 --background 时用绿幕并抠成透明背景；指定时保留该纯色背景（无抠图边缘问题），
-但背景色与文字色需有足够差异（--res/--video-id 无效）。
+--text-only：不渲染背景帧，纯色背景渲染后按非背景色包围盒裁剪，输出紧贴文字、
+保留纯色背景的 PNG。截取背景色：--background 优先，否则取 [preview] background（默认 black）；
+背景色需与文字颜色有足够差异（--res/--video-id 无效）。
 """
 
 from __future__ import annotations
@@ -27,8 +27,6 @@ RESOLUTIONS = {"720p": (1280, 720), "1080p": (1920, 1080), "4k": (3840, 2160)}
 # text-only 渲染画布：用 4K 画布渲染后裁剪到文字包围盒，保证文字渲染分辨率（清晰度）足够高；
 # 画布大小影响渲染字号（字号随高度比例），最终裁剪图尺寸 = 文字实际像素
 _TEXT_CANVAS_W, _TEXT_CANVAS_H = 3840, 2160
-# text-only 探测背景色（绿色，与常见字幕颜色差异大；文字范围 = 非绿像素包围盒）
-_TEXT_BG_COLOR = "0x00FF00"
 
 # bbox 滤镜日志：... w:.. h:.. crop=W:H:X:Y drawbox=..
 _BBOX_RE = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
@@ -77,10 +75,10 @@ def inline_image_escape(path: Path, width: str = "100%") -> str:
 def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
                    index: int, meta: dict, preset: str | None = None,
                    background: str | None = None) -> Path:
-    """纯色背景渲染单条字幕，按非背景色包围盒裁剪。
+    """纯色背景渲染单条字幕，按非背景色包围盒裁剪，输出保留该纯色背景的 PNG。
 
-    未指定 background 时默认绿幕，输出抠成透明背景；
-    指定 background 时用它作截取背景色，输出保留该纯色背景（无抠图边缘瑕疵）。
+    截取背景色：background 参数优先，否则取 [preview] background（默认 black）。
+    背景色需与文字颜色有足够差异，否则包围盒探测失败。
     """
     item = pick_item(items, index)
     style_cfg = cfg.style_config(preset=preset)
@@ -97,7 +95,7 @@ def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
     title = re.sub(r'[\\/:*?"<>|\s]+', "_", meta.get("title", workdir.name)).strip("_")[:80]
     raw_png = out_dir / f"{title}_preview_text_raw.png"
     output = out_dir / f"{title}_preview_text.png"
-    bg = background or _TEXT_BG_COLOR
+    bg = background or cfg.section("preview").get("background", "black")
     try:
         # 1. 纯色背景渲染（ass 滤镜只写 RGB 不写 alpha，故截取背景 + 非背景色探测）
         color_src = f"color=c={bg}:s={_TEXT_CANVAS_W}x{_TEXT_CANVAS_H}:d=1"
@@ -121,15 +119,10 @@ def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
         if bounds is None:
             raise RuntimeError("text-only: 未能检测到文字范围（渲染结果为空？）")
         w, h, x, y = bounds
-        # 3. 裁剪到文字范围；未指定 background（绿幕）时抠成透明背景，
-        #    指定了则保留纯色背景（渲染原样，无抠图边缘问题）
-        cut_vf = f"crop={w}:{h}:{x}:{y}"
-        if background is None:
-            cut_vf = (f"colorkey=color={_TEXT_BG_COLOR}:similarity=0.05:blend=0,"
-                      f"format=rgba," + cut_vf)
+        # 3. 裁剪到文字范围（保留纯色背景，渲染原样，无抠图边缘问题）
         cmd = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-i", str(raw_png), "-vf", cut_vf, str(output),
+            "-i", str(raw_png), "-vf", f"crop={w}:{h}:{x}:{y}", str(output),
         ]
         util.run_cmd(cmd, log, timeout=None)
     finally:
@@ -144,7 +137,7 @@ def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
 def run(cfg, workdir: Path, log: logging.Logger, res: str = "auto", index: int = 1,
         background: str | None = None, text_only: bool = False, preset: str | None = None) -> Path:
     """background 为 None 时取 [preview] background（默认 black）；
-    text_only 时 background 作为截取背景色（默认绿幕，输出透明背景；指定后保留该纯色背景）；
+    text_only 时 background 作为截取背景色（未指定则取 [preview] background，默认 black），输出保留该纯色背景；
     preset 非 None 时临时切换样式预设。"""
     meta = util.load_meta(workdir)
     refined_path = workdir / "refined.json"

@@ -259,13 +259,14 @@ def test_run_text_only(tmp_path, monkeypatch):
     assert out.name == "My_Video_preview_text.png"
     assert out.parent == FakeCfg().output_dir
     assert len(calls) == 3
-    # 1. 绿幕背景渲染
-    assert "color=c=0x00FF00:s=3840x2160:d=1" in calls[0]
-    # 2. 绿幕抠图 + bbox 包围盒探测
+    # 1. 用 [preview] background 默认值（black）渲染
+    assert "color=c=black:s=3840x2160:d=1" in calls[0]
+    # 2. 背景色抠图 + bbox 包围盒探测
     assert any("colorkey" in a for a in calls[1])
     assert any("bbox" in a for a in calls[1])
-    # 3. 按解析出的包围盒裁剪
+    # 3. 按解析出的包围盒裁剪，保留纯色背景（不抠透明）
     assert any("crop=491:81:10:20" in a for a in calls[2])
+    assert not any("colorkey" in a and "crop=491" in a for a in calls[2])
     # 临时 raw 图已清理
     assert not (tmp_path / "dist" / "My_Video_preview_text_raw.png").exists()
     # 固定画布 ASS
@@ -307,7 +308,7 @@ def test_run_text_only_with_background(tmp_path, monkeypatch):
     monkeypatch.setattr(preview.util, "run_cmd", fake_run_cmd)
     preview.run(FakeCfg(), workdir, _LOG, text_only=True, background="#202020")
 
-    # 渲染背景用指定色（而非绿幕）
+    # 渲染背景用指定色（而非 [preview] background 默认值）
     assert "color=c=#202020:s=3840x2160:d=1" in calls[0]
     # 探测仍按背景色抠图找包围盒
     assert any("colorkey" in a for a in calls[1])
