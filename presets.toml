@@ -39,7 +39,7 @@ mode = "bilingual"
 # 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
 primary_lang = "zh"
 # 中文样式（粗体/斜体）
-font_bold = false
+font_bold = true
 font_italic = false
 # 英文独立字体与样式（英文做主/副语言均生效，字号跟随主/副位置）
 en_font_name = "IBM Plex Sans"
