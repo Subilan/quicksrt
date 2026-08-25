@@ -8,7 +8,7 @@
   quicksrt translate        DeepSeek 翻译为简体中文
   quicksrt srt              生成 SRT 字幕
   quicksrt burn             烧录字幕（libass，不重编码音频）
-  quicksrt preview          纯色背景渲染单条字幕 PNG 预览（字幕样式预览）
+  quicksrt preview          纯色背景渲染单条字幕 PNG 预览（字幕样式预览；--text-only 输出紧贴文字的裁剪图）
   quicksrt all <url>        全链路执行
 """
 
@@ -211,12 +211,21 @@ def preview(
     index: int = typer.Option(1, "--index", help="渲染第几条字幕（从 1 开始，默认 1）"),
     background: str | None = typer.Option(None, "--background", help="预览背景色（覆盖 [preview] background，ffmpeg color 支持的值，如 white/#202020）"),
     inline: bool = typer.Option(False, "--inline-image", help="在 iTerm2 终端内直接展示预览图"),
+    text_only: bool = typer.Option(False, "--text-only", help="只渲染文字本身（输出紧贴文字范围的 PNG，无背景帧）；此时 --res/--video-id/--background 无效"),
 ):
-    """纯色背景渲染单条字幕的 PNG 预览（语言模式取 [style] 配置）"""
+    """渲染单条字幕 PNG 预览（语言模式取 [style] 配置；--text-only 输出紧贴文字的裁剪图）"""
     cfg = _cfg(config)
+    if text_only:
+        if video_id is not None:
+            typer.echo("警告: --text-only 模式下 --video-id 无效，改用最新 work 目录", err=True)
+        if res != "auto":
+            typer.echo("警告: --text-only 模式下 --res 无效，忽略", err=True)
+        if background is not None:
+            typer.echo("警告: --text-only 模式下 --background 无效，忽略", err=True)
+        video_id, res, background = None, "auto", None
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
-    out = preview_step.run(cfg, workdir, log, res=res, index=index, background=background)
+    out = preview_step.run(cfg, workdir, log, res=res, index=index, background=background, text_only=text_only)
     if inline:
         if os.environ.get("TERM_PROGRAM") != "iTerm.app":
             typer.echo("警告: 当前终端不是 iTerm2，内联图片可能无法显示", err=True)

@@ -7,7 +7,13 @@ import logging
 import pytest
 
 from quicksrt.steps import preview
-from quicksrt.steps.preview import RESOLUTIONS, inline_image_escape, pick_item, resolve_size
+from quicksrt.steps.preview import (
+    RESOLUTIONS,
+    _parse_bbox,
+    inline_image_escape,
+    pick_item,
+    resolve_size,
+)
 
 _LOG = logging.getLogger("test_preview")
 
@@ -177,3 +183,101 @@ def test_run_without_refined(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="refined.json"):
         preview.run(FakeCfg(), workdir, _LOG, res="720p")
+
+
+# ---------- text-only ----------
+
+def test_parse_bbox():
+    stderr = (
+        "ffmpeg version ...\n"
+        "[Parsed_bbox_3 @ 0x7f] n:0 pts:0 pts_time:0 x1:10 x2:500 y1:20 y2:100 w:491 h:81 "
+        "crop=491:81:10:20 drawbox=0:922:1920:118\n"
+    )
+    assert _parse_bbox(stderr) == (491, 81, 10, 20)
+
+
+def test_parse_bbox_none():
+    assert _parse_bbox("no bbox output") is None
+
+
+def test_run_text_only(tmp_path, monkeypatch):
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    (workdir / "meta.json").write_text(json.dumps({"title": "My Video"}), encoding="utf-8")
+
+    class FakeCfg:
+        output_dir = tmp_path / "dist"
+
+        def section(self, name):
+            if name == "style":
+                return {"mode": "bilingual", "primary_lang": "zh", "font_name": "F"}
+            return {"background": "black"}
+
+        def style_config(self):
+            return self.section("style")
+
+    calls = []
+
+    def fake_run_cmd(cmd, log, timeout=None):
+        calls.append(cmd)
+        from types import SimpleNamespace
+
+        if any("bbox" in a for a in cmd):
+            return SimpleNamespace(
+                stderr="[Parsed_bbox_3 @ 0x7f] n:0 pts:0 pts_time:0 x1:10 x2:500 y1:20 y2:100 w:491 h:81 crop=491:81:10:20 drawbox=0:922:1920:118\n"
+            )
+        return SimpleNamespace(stderr="")
+
+    monkeypatch.setattr(preview.util, "run_cmd", fake_run_cmd)
+    out = preview.run(FakeCfg(), workdir, _LOG, text_only=True)
+
+    assert out.name == "My_Video_preview_text.png"
+    assert out.parent == FakeCfg().output_dir
+    assert len(calls) == 3
+    # 1. 绿幕背景渲染
+    assert "color=c=0x00FF00:s=1920x1080:d=1" in calls[0]
+    # 2. 绿幕抠图 + bbox 包围盒探测
+    assert any("colorkey" in a for a in calls[1])
+    assert any("bbox" in a for a in calls[1])
+    # 3. 按解析出的包围盒裁剪
+    assert any("crop=491:81:10:20" in a for a in calls[2])
+    # 临时 raw 图已清理
+    assert not (tmp_path / "dist" / "My_Video_preview_text_raw.png").exists()
+    # 固定画布 ASS
+    ass = (workdir / "preview_text.ass").read_text(encoding="utf-8")
+    assert "PlayResX: 1920" in ass and "PlayResY: 1080" in ass
+    assert "第一句" in ass and "第二句" not in ass  # 只渲染选中条目（默认第 1 条）
+
+
+def test_run_text_only_with_index(tmp_path, monkeypatch):
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
+
+    class FakeCfg:
+        output_dir = tmp_path / "dist"
+
+        def section(self, name):
+            if name == "style":
+                return {"mode": "mono", "primary_lang": "en"}
+            return {}
+
+        def style_config(self):
+            return self.section("style")
+
+    monkeypatch.setattr(
+        preview.util, "run_cmd",
+        lambda cmd, log, timeout=None: __import__("types").SimpleNamespace(
+            stderr=(
+                "[Parsed_bbox_3 @ 0x7f] n:0 pts:0 pts_time:0 x1:10 x2:500 y1:20 y2:100 w:491 h:81 crop=491:81:10:20 drawbox=0:922:1920:118\n"
+                if any("bbox" in a for a in cmd)
+                else ""
+            )
+        ),
+    )
+    out = preview.run(FakeCfg(), workdir, _LOG, text_only=True, index=2)
+    assert out.name == "work_preview_text.png"  # 无标题时用 workdir 名
+    ass = (workdir / "preview_text.ass").read_text(encoding="utf-8")
+    assert "second" in ass and "first" not in ass  # mono+en：只渲染第 2 条英文
