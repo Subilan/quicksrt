@@ -7,6 +7,7 @@ from quicksrt.steps.burn import (
     _ass_ts,
     _bg_color_parts,
     _bg_dialogue,
+    _lang_color,
     _lang_style,
     _style_block,
     _style_mode,
@@ -88,6 +89,16 @@ def test_lang_style():
     assert _lang_style({}, "en")[0] == "Noto Sans CJK SC"  # en 字体缺省回退主字体
 
 
+def test_lang_color():
+    style = {"primary_color": "&H00FFFFFF", "en_color": "&H00F39621"}
+    assert _lang_color(style, "zh") == "&H00FFFFFF"
+    assert _lang_color(style, "en") == "&H00F39621"
+    # en_color 缺省/留空时英文回退 primary_color
+    assert _lang_color({"primary_color": "&H00FFFFFF"}, "en") == "&H00FFFFFF"
+    assert _lang_color({"primary_color": "&H00FFFFFF", "en_color": ""}, "en") == "&H00FFFFFF"
+    assert _lang_color({}, "zh") == "&H00FFFFFF"
+
+
 # ---------- build_ass_items ----------
 
 _STYLE = {
@@ -105,6 +116,18 @@ def test_build_ass_bilingual_zh_primary():
     assert "Style: Default,ZH-Font,54," in ass
     assert "Style: Secondary,EN-Font,32," in ass
     assert "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,你好\\N{\\rSecondary}hello" in ass
+
+
+def test_build_ass_en_color():
+    """en_color 只作用于英文样式，中文保持 primary_color。"""
+    style = {**_STYLE, "en_color": "&H00F39621"}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    assert "Style: Default,ZH-Font,54,&H00FFFFFF," in ass      # 中文白
+    assert "Style: Secondary,EN-Font,32,&H00F39621," in ass    # 英文蓝
+    # 英文为主语言时：Default 用 en_color
+    ass_en = build_ass_items(_ITEMS, style, _PROBE, mode="bilingual", primary_lang="en")
+    assert "Style: Default,EN-Font,54,&H00F39621," in ass_en
+    assert "Style: Secondary,ZH-Font,32,&H00FFFFFF," in ass_en
 
 
 def test_build_ass_bilingual_en_primary():

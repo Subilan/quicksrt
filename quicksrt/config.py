@@ -93,6 +93,8 @@ en_font_name = "Noto Sans CJK SC"
 en_font_ratio = 0.6
 en_bold = false
 en_italic = false
+# 英文独立颜色（ASS AABBGGRR）；留空时英文跟随 primary_color
+en_color = ""
 # 字幕背景：全宽半透明矩形条（分层渲染：背景 Dialogue + 文本 Dialogue）
 # bg_color 为 ASS AABBGGRR 格式（&H80 前缀即 50% 透明）；bg_padding_ratio 为内边距相对字号比例
 bg_enabled = false
