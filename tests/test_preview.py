@@ -260,7 +260,7 @@ def test_run_text_only(tmp_path, monkeypatch):
     assert out.parent == FakeCfg().output_dir
     assert len(calls) == 3
     # 1. 绿幕背景渲染
-    assert "color=c=0x00FF00:s=1920x1080:d=1" in calls[0]
+    assert "color=c=0x00FF00:s=3840x2160:d=1" in calls[0]
     # 2. 绿幕抠图 + bbox 包围盒探测
     assert any("colorkey" in a for a in calls[1])
     assert any("bbox" in a for a in calls[1])
@@ -270,7 +270,7 @@ def test_run_text_only(tmp_path, monkeypatch):
     assert not (tmp_path / "dist" / "My_Video_preview_text_raw.png").exists()
     # 固定画布 ASS
     ass = (workdir / "preview_text.ass").read_text(encoding="utf-8")
-    assert "PlayResX: 1920" in ass and "PlayResY: 1080" in ass
+    assert "PlayResX: 3840" in ass and "PlayResY: 2160" in ass
     assert "第一句" in ass and "第二句" not in ass  # 只渲染选中条目（默认第 1 条）
 
 
