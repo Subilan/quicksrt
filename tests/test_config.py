@@ -108,6 +108,30 @@ def test_style_config_missing_preset_raises():
         cfg.style_config()
 
 
+def test_style_config_cli_preset_overrides():
+    """CLI --preset 临时覆盖 config.toml 的 preset，但 [style] 显式键仍覆盖 preset。"""
+    cfg = Config({"style": {"preset": "default", "font_size_ratio": 0.09}}, None, _PRESETS)
+    style = cfg.style_config(preset="bold_en")
+    assert style["primary_lang"] == "en"          # 来自 --preset 的 bold_en
+    assert style["en_bold"] is True               # 来自 --preset 的 bold_en
+    assert style["font_size_ratio"] == 0.09        # [style] 显式键仍覆盖
+    assert style["preset"] == "bold_en"
+
+
+def test_style_config_cli_preset_without_style_preset():
+    """config.toml 未写 preset 时，--preset 作为基底展开。"""
+    cfg = Config({"style": {"font_size_ratio": 0.07}}, None, _PRESETS)
+    style = cfg.style_config(preset="bold_en")
+    assert style["primary_lang"] == "en"
+    assert style["font_size_ratio"] == 0.07        # 显式键仍覆盖 preset 的默认值
+
+
+def test_style_config_cli_preset_missing_raises():
+    cfg = Config({"style": {"preset": "default"}}, None, _PRESETS)
+    with pytest.raises(RuntimeError, match="样式预设不存在: nope（可用: bold_en, default）"):
+        cfg.style_config(preset="nope")
+
+
 def test_load_config_reads_presets(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(

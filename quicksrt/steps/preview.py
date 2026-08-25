@@ -73,10 +73,10 @@ def inline_image_escape(path: Path, width: str = "100%") -> str:
 
 
 def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
-                   index: int, meta: dict) -> Path:
+                   index: int, meta: dict, preset: str | None = None) -> Path:
     """绿幕背景渲染单条字幕，按非背景色包围盒裁剪，输出紧贴文字的 PNG。"""
     item = pick_item(items, index)
-    style_cfg = cfg.style_config()
+    style_cfg = cfg.style_config(preset=preset)
     mode, primary_lang = burn._style_mode(style_cfg)
     probe = {"width": _TEXT_CANVAS_W, "height": _TEXT_CANVAS_H}
     ass = burn.build_ass_items(
@@ -129,9 +129,9 @@ def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
 
 
 def run(cfg, workdir: Path, log: logging.Logger, res: str = "auto", index: int = 1,
-        background: str | None = None, text_only: bool = False) -> Path:
+        background: str | None = None, text_only: bool = False, preset: str | None = None) -> Path:
     """background 为 None 时取 [preview] background（默认 black）；
-    text_only 时不渲染背景帧，输出紧贴文字的裁剪图。"""
+    text_only 时不渲染背景帧，输出紧贴文字的裁剪图；preset 非 None 时临时切换样式预设。"""
     meta = util.load_meta(workdir)
     refined_path = workdir / "refined.json"
     if not refined_path.exists():
@@ -140,12 +140,12 @@ def run(cfg, workdir: Path, log: logging.Logger, res: str = "auto", index: int =
     if not items:
         raise RuntimeError("refined.json 为空，无法预览")
     if text_only:
-        return _run_text_only(cfg, workdir, log, items, index, meta)
+        return _run_text_only(cfg, workdir, log, items, index, meta, preset=preset)
 
     width, height, res_label = resolve_size(res, workdir)
     item = pick_item(items, index)
 
-    style_cfg = cfg.style_config()
+    style_cfg = cfg.style_config(preset=preset)
     mode, primary_lang = burn._style_mode(style_cfg)
     ass = burn.build_ass_items(
         [item], style_cfg, {"width": width, "height": height}, mode=mode, primary_lang=primary_lang

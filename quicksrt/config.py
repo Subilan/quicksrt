@@ -145,19 +145,22 @@ class Config:
     def section(self, name: str) -> dict:
         return self.raw.get(name, {})
 
-    def style_config(self) -> dict:
+    def style_config(self, preset: str | None = None) -> dict:
         """展开 [style]：preset（presets.toml）为基底，config.toml 显式键覆盖，其余补内置默认。
 
         优先级：config.toml 显式键 > preset > 内置默认。
+        preset 参数非 None 时临时切换预设（如 CLI --preset），仅影响本次调用，不改 config.toml。
         """
         explicit = dict(self.user_style)
+        if preset is not None:
+            explicit["preset"] = preset
         preset_name = explicit.get("preset")
         if preset_name:
-            preset = self.presets.get(preset_name)
-            if preset is None:
+            base = self.presets.get(preset_name)
+            if base is None:
                 names = ", ".join(sorted(self.presets)) or "无（可创建 presets.toml）"
                 raise RuntimeError(f"样式预设不存在: {preset_name}（可用: {names}）")
-            style = {**preset, **explicit}
+            style = {**base, **explicit}
         else:
             style = explicit
         defaults = dict(self.section("style"))

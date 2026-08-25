@@ -98,7 +98,7 @@ def test_run_builds_ass_and_calls_ffmpeg(tmp_path, monkeypatch):
                 return {"mode": "bilingual", "primary_lang": "zh", "font_name": "F"}
             return {"background": "black"}
 
-        def style_config(self):
+        def style_config(self, preset=None):
             return self.section("style")
 
     calls = []
@@ -134,7 +134,7 @@ def test_run_custom_background(tmp_path, monkeypatch):
                 return {"mode": "mono", "primary_lang": "en"}
             return {"background": "#202020"}
 
-        def style_config(self):
+        def style_config(self, preset=None):
             return self.section("style")
 
     calls = []
@@ -148,6 +148,30 @@ def test_run_custom_background(tmp_path, monkeypatch):
 
     ass = (workdir / "preview.ass").read_text(encoding="utf-8")
     assert "Style: Secondary" not in ass  # mono 无副样式
+
+
+def test_run_preset_passed_to_style_config(tmp_path, monkeypatch):
+    """run 把 --preset 传给 style_config（临时切换预设）。"""
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
+
+    seen = {}
+
+    class FakeCfg:
+        output_dir = tmp_path / "dist"
+
+        def section(self, name):
+            return {} if name == "style" else {"background": "black"}
+
+        def style_config(self, preset=None):
+            seen["preset"] = preset
+            return {"mode": "mono", "primary_lang": "zh"}
+
+    monkeypatch.setattr(preview.util, "run_cmd", lambda cmd, log, timeout=None: None)
+    preview.run(FakeCfg(), workdir, _LOG, res="720p", preset="plex")
+    assert seen["preset"] == "plex"
 
 
 def test_run_background_override(tmp_path, monkeypatch):
@@ -164,7 +188,7 @@ def test_run_background_override(tmp_path, monkeypatch):
                 return {"mode": "mono", "primary_lang": "zh"}
             return {"background": "#202020"}  # config 值
 
-        def style_config(self):
+        def style_config(self, preset=None):
             return self.section("style")
 
     calls = []
@@ -214,7 +238,7 @@ def test_run_text_only(tmp_path, monkeypatch):
                 return {"mode": "bilingual", "primary_lang": "zh", "font_name": "F"}
             return {"background": "black"}
 
-        def style_config(self):
+        def style_config(self, preset=None):
             return self.section("style")
 
     calls = []
@@ -264,7 +288,7 @@ def test_run_text_only_with_index(tmp_path, monkeypatch):
                 return {"mode": "mono", "primary_lang": "en"}
             return {}
 
-        def style_config(self):
+        def style_config(self, preset=None):
             return self.section("style")
 
     monkeypatch.setattr(
