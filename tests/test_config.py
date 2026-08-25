@@ -117,3 +117,58 @@ def test_load_config_reads_presets(monkeypatch, tmp_path):
     cfg = load_config()
     assert cfg.presets["mypreset"]["font_name"] == "Serif"
     assert cfg.style_config()["font_name"] == "Noto Sans CJK SC"  # 未引用时不受影响
+
+
+# ---------- style_config 真实 load_config 路径（回归：内置默认不得覆盖 preset） ----------
+
+
+def test_style_real_load_preset_no_override(monkeypatch, tmp_path):
+    """只写 preset 不覆盖：应全用 preset 值，而非内置默认。"""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "presets.toml").write_text(
+        '[mypreset]\nfont_name = "Serif"\nfont_bold = true\nprimary_lang = "en"\nmode = "mono"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "config.toml").write_text('[style]\npreset = "mypreset"\n', encoding="utf-8")
+    s = load_config().style_config()
+    assert s["font_name"] == "Serif"       # 来自 preset，而非内置默认 Noto Sans CJK SC
+    assert s["font_bold"] is True           # 来自 preset
+    assert s["primary_lang"] == "en"       # 来自 preset
+    assert s["mode"] == "mono"             # 来自 preset
+    assert s["outline"] == 2                # preset 未定义的键补内置默认
+
+
+def test_style_real_load_preset_partial_override(monkeypatch, tmp_path):
+    """preset + 选择性覆盖：未写字段用 preset 值，显式键覆盖 preset。"""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "presets.toml").write_text(
+        '[mypreset]\nfont_name = "Serif"\nfont_bold = true\nprimary_lang = "en"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "config.toml").write_text(
+        '[style]\npreset = "mypreset"\nfont_bold = false\n', encoding="utf-8"
+    )
+    s = load_config().style_config()
+    assert s["font_bold"] is False          # 显式覆盖
+    assert s["font_name"] == "Serif"       # 未写字段用 preset
+    assert s["primary_lang"] == "en"
+
+
+def test_style_real_load_no_preset(monkeypatch, tmp_path):
+    """不写 preset，从零显式设置：显式键生效，其余补内置默认。"""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.toml").write_text(
+        '[style]\nmode = "mono"\nprimary_lang = "en"\n', encoding="utf-8"
+    )
+    s = load_config().style_config()
+    assert s["mode"] == "mono"
+    assert s["primary_lang"] == "en"
+    assert s["font_name"] == "Noto Sans CJK SC"  # 其余补内置默认
+
+
+def test_style_real_load_missing_preset_raises(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.toml").write_text('[style]\npreset = "nope"\n', encoding="utf-8")
+    cfg = load_config()
+    with pytest.raises(RuntimeError, match="样式预设不存在: nope"):
+        cfg.style_config()
