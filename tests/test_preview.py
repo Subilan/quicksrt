@@ -274,6 +274,48 @@ def test_run_text_only(tmp_path, monkeypatch):
     assert "第一句" in ass and "第二句" not in ass  # 只渲染选中条目（默认第 1 条）
 
 
+def test_run_text_only_with_background(tmp_path, monkeypatch):
+    """text-only 指定 --background：用它作截取背景色，裁剪保留纯色背景（不抠透明）。"""
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
+
+    class FakeCfg:
+        output_dir = tmp_path / "dist"
+
+        def section(self, name):
+            if name == "style":
+                return {"mode": "bilingual", "primary_lang": "zh", "font_name": "F"}
+            return {"background": "black"}
+
+        def style_config(self, preset=None):
+            return self.section("style")
+
+    calls = []
+
+    def fake_run_cmd(cmd, log, timeout=None):
+        calls.append(cmd)
+        from types import SimpleNamespace
+
+        if any("bbox" in a for a in cmd):
+            return SimpleNamespace(
+                stderr="[Parsed_bbox_3 @ 0x7f] n:0 pts:0 pts_time:0 x1:10 x2:500 y1:20 y2:100 w:491 h:81 crop=491:81:10:20 drawbox=0:922:1920:118\n"
+            )
+        return SimpleNamespace(stderr="")
+
+    monkeypatch.setattr(preview.util, "run_cmd", fake_run_cmd)
+    preview.run(FakeCfg(), workdir, _LOG, text_only=True, background="#202020")
+
+    # 渲染背景用指定色（而非绿幕）
+    assert "color=c=#202020:s=3840x2160:d=1" in calls[0]
+    # 探测仍按背景色抠图找包围盒
+    assert any("colorkey" in a for a in calls[1])
+    # 裁剪保留背景：无 colorkey 抠透明
+    assert any("crop=491:81:10:20" in a for a in calls[2])
+    assert not any("colorkey" in a and "crop=491" in a for a in calls[2])
+
+
 def test_run_text_only_with_index(tmp_path, monkeypatch):
     workdir = tmp_path / "work"
     workdir.mkdir()

@@ -209,7 +209,7 @@ def preview(
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     res: str = typer.Option("auto", "--res", help="输出分辨率: auto/720p/1080p/4k（auto 取源视频分辨率）"),
     index: int = typer.Option(1, "--index", help="渲染第几条字幕（从 1 开始，默认 1）"),
-    background: str | None = typer.Option(None, "--background", help="预览背景色（覆盖 [preview] background，ffmpeg color 支持的值，如 white/#202020）"),
+    background: str | None = typer.Option(None, "--background", help="预览背景色（覆盖 [preview] background，ffmpeg color 支持的值，如 white/#202020；text-only 时作为截取背景色，指定后输出保留该纯色背景，不指定则绿幕抠成透明）"),
     preset: str | None = typer.Option(None, "--preset", help="样式预设名（覆盖 config.toml [style] 的 preset，仅本次预览生效）"),
     inline: bool = typer.Option(False, "--inline-image", help="在 iTerm2 终端内直接展示预览图"),
     text_only: bool = typer.Option(False, "--text-only", help="只渲染文字本身（输出紧贴文字范围的 PNG，无背景帧）；此时 --res/--video-id/--background 无效"),
@@ -221,9 +221,8 @@ def preview(
             typer.echo("警告: --text-only 模式下 --video-id 无效，改用最新 work 目录", err=True)
         if res != "auto":
             typer.echo("警告: --text-only 模式下 --res 无效，忽略", err=True)
-        if background is not None:
-            typer.echo("警告: --text-only 模式下 --background 无效，忽略", err=True)
-        video_id, res, background = None, "auto", None
+        video_id, res = None, "auto"
+        # --background 在 text-only 下仍生效（截取背景色）
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
     out = preview_step.run(cfg, workdir, log, res=res, index=index, background=background, text_only=text_only, preset=preset)

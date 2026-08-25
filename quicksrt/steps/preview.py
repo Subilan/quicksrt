@@ -6,8 +6,9 @@
 默认渲染第一条字幕，--index 可指定任意条；语言模式取 [style] 配置。
 CLI 加 --inline-image 时生成 iTerm2 内联图片转义序列，终端内直接展示。
 
---text-only：不渲染背景帧，绿幕背景渲染后按非背景色包围盒裁剪，
-输出紧贴文字的 PNG（此时 --res/--video-id/--background 无效）。
+--text-only：不渲染背景帧，纯色背景渲染后按非背景色包围盒裁剪，输出紧贴文字的 PNG。
+截取背景色：未指定 --background 时用绿幕并抠成透明背景；指定时保留该纯色背景（无抠图边缘问题），
+但背景色与文字色需有足够差异（--res/--video-id 无效）。
 """
 
 from __future__ import annotations
@@ -74,8 +75,13 @@ def inline_image_escape(path: Path, width: str = "100%") -> str:
 
 
 def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
-                   index: int, meta: dict, preset: str | None = None) -> Path:
-    """绿幕背景渲染单条字幕，按非背景色包围盒裁剪，输出紧贴文字的 PNG。"""
+                   index: int, meta: dict, preset: str | None = None,
+                   background: str | None = None) -> Path:
+    """纯色背景渲染单条字幕，按非背景色包围盒裁剪。
+
+    未指定 background 时默认绿幕，输出抠成透明背景；
+    指定 background 时用它作截取背景色，输出保留该纯色背景（无抠图边缘瑕疵）。
+    """
     item = pick_item(items, index)
     style_cfg = cfg.style_config(preset=preset)
     mode, primary_lang = burn._style_mode(style_cfg)
@@ -91,9 +97,10 @@ def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
     title = re.sub(r'[\\/:*?"<>|\s]+', "_", meta.get("title", workdir.name)).strip("_")[:80]
     raw_png = out_dir / f"{title}_preview_text_raw.png"
     output = out_dir / f"{title}_preview_text.png"
+    bg = background or _TEXT_BG_COLOR
     try:
-        # 1. 纯色背景渲染（ass 滤镜只写 RGB 不写 alpha，故用绿幕背景 + 非背景色探测）
-        color_src = f"color=c={_TEXT_BG_COLOR}:s={_TEXT_CANVAS_W}x{_TEXT_CANVAS_H}:d=1"
+        # 1. 纯色背景渲染（ass 滤镜只写 RGB 不写 alpha，故截取背景 + 非背景色探测）
+        color_src = f"color=c={bg}:s={_TEXT_CANVAS_W}x{_TEXT_CANVAS_H}:d=1"
         ass_filter = f"ass=filename='{str(ass_path).replace(chr(39), chr(92) + chr(39))}'"
         cmd = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -102,10 +109,10 @@ def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
             "-frames:v", "1", str(raw_png),
         ]
         util.run_cmd(cmd, log, timeout=None)
-        # 2. 探测文字包围盒（绿幕抠图转 alpha -> bbox 检测非透明像素范围）
+        # 2. 探测文字包围盒（背景色抠图转 alpha -> bbox 检测非透明像素范围）
         proc = util.run_cmd(
             ["ffmpeg", "-hide_banner", "-loglevel", "info", "-i", str(raw_png),
-             "-vf", f"colorkey=color={_TEXT_BG_COLOR}:similarity=0.05:blend=0,"
+             "-vf", f"colorkey=color={bg}:similarity=0.05:blend=0,"
                      "format=rgba,alphaextract,bbox",
              "-f", "null", "-"],
             log, timeout=None,
@@ -114,10 +121,15 @@ def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
         if bounds is None:
             raise RuntimeError("text-only: 未能检测到文字范围（渲染结果为空？）")
         w, h, x, y = bounds
-        # 3. 裁剪到文字范围
+        # 3. 裁剪到文字范围；未指定 background（绿幕）时抠成透明背景，
+        #    指定了则保留纯色背景（渲染原样，无抠图边缘问题）
+        cut_vf = f"crop={w}:{h}:{x}:{y}"
+        if background is None:
+            cut_vf = (f"colorkey=color={_TEXT_BG_COLOR}:similarity=0.05:blend=0,"
+                      f"format=rgba," + cut_vf)
         cmd = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-i", str(raw_png), "-vf", f"crop={w}:{h}:{x}:{y}", str(output),
+            "-i", str(raw_png), "-vf", cut_vf, str(output),
         ]
         util.run_cmd(cmd, log, timeout=None)
     finally:
@@ -132,7 +144,8 @@ def _run_text_only(cfg, workdir: Path, log: logging.Logger, items: list[dict],
 def run(cfg, workdir: Path, log: logging.Logger, res: str = "auto", index: int = 1,
         background: str | None = None, text_only: bool = False, preset: str | None = None) -> Path:
     """background 为 None 时取 [preview] background（默认 black）；
-    text_only 时不渲染背景帧，输出紧贴文字的裁剪图；preset 非 None 时临时切换样式预设。"""
+    text_only 时 background 作为截取背景色（默认绿幕，输出透明背景；指定后保留该纯色背景）；
+    preset 非 None 时临时切换样式预设。"""
     meta = util.load_meta(workdir)
     refined_path = workdir / "refined.json"
     if not refined_path.exists():
@@ -141,7 +154,7 @@ def run(cfg, workdir: Path, log: logging.Logger, res: str = "auto", index: int =
     if not items:
         raise RuntimeError("refined.json 为空，无法预览")
     if text_only:
-        return _run_text_only(cfg, workdir, log, items, index, meta, preset=preset)
+        return _run_text_only(cfg, workdir, log, items, index, meta, preset=preset, background=background)
 
     width, height, res_label = resolve_size(res, workdir)
     item = pick_item(items, index)
