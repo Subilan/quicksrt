@@ -77,7 +77,8 @@ max_chars = 42
 font_name = "Noto Sans CJK SC"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
-primary_color = "&H00FFFFFF"
+# 中文主色（ASS AABBGGRR）
+zh_color = "&H00FFFFFF"
 outline_color = "&H00000000"
 outline = 2
 shadow = 1
@@ -93,7 +94,7 @@ en_font_name = "Noto Sans CJK SC"
 en_font_ratio = 0.6
 en_bold = false
 en_italic = false
-# 英文独立颜色（ASS AABBGGRR）；留空时英文跟随 primary_color
+# 英文独立颜色（ASS AABBGGRR）；留空时英文跟随 zh_color
 en_color = ""
 # 字幕背景：全宽半透明矩形条（分层渲染：背景 Dialogue + 文本 Dialogue）
 # bg_color 为 ASS AABBGGRR 格式（&H80 前缀即 50% 透明）；bg_padding_ratio 为内边距相对字号比例
@@ -162,6 +163,7 @@ class Config:
             if base is None:
                 names = ", ".join(sorted(self.presets)) or "无（可创建 presets.toml）"
                 raise RuntimeError(f"样式预设不存在: {preset_name}（可用: {names}）")
+            base = dict(base)
             style = {**base, **explicit}
         else:
             style = explicit

@@ -3,7 +3,7 @@
 font_name = "微软雅黑"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
-primary_color = "&H00FFFFFF"
+zh_color = "&H00FFFFFF"
 outline_color = "&H00000000"
 outline = 2
 shadow = 1
@@ -30,7 +30,7 @@ bg_padding_ratio = 0.35
 font_name = "IBM Plex Sans SC"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
-primary_color = "&H00FFFFFF"
+zh_color = "&H00FFFFFF"
 outline_color = "&H00000000"
 outline = 2
 shadow = 1

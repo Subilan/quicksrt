@@ -54,10 +54,10 @@ def _ass_escape(text: str) -> str:
 def _style_block(
     width: int, height: int, cfg_style: dict, fontsize: int, margin_v: int, margin_h: int,
     name: str = "Default", font_name: str | None = None, bold: bool = False, italic: bool = False,
-    primary_color: str | None = None,
+    color: str | None = None,
 ) -> str:
     font = font_name or cfg_style.get("font_name", "Noto Sans CJK SC")
-    color = primary_color or cfg_style.get("primary_color", "&H00FFFFFF")
+    color = color or cfg_style.get("zh_color", "&H00FFFFFF")
     return (
         f"Style: {name},{font},{fontsize},{color},&H000000FF,"
         f"{cfg_style.get('outline_color', '&H00000000')},&H80000000,"
@@ -124,10 +124,10 @@ def _bg_dialogue(it: dict, width: int, height: int, fontsize: int, en_size: int,
 
 
 def _lang_color(cfg_style: dict, lang: str) -> str:
-    """某语言的主色：en 用 en_color（未设置/留空时回退 primary_color），zh 用 primary_color。"""
+    """某语言的主色：en 用 en_color（未设置/留空时回退 zh_color），zh 用 zh_color。"""
     if lang == "en":
-        return cfg_style.get("en_color") or cfg_style.get("primary_color", "&H00FFFFFF")
-    return cfg_style.get("primary_color", "&H00FFFFFF")
+        return cfg_style.get("en_color") or cfg_style.get("zh_color", "&H00FFFFFF")
+    return cfg_style.get("zh_color", "&H00FFFFFF")
 
 
 def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
@@ -173,10 +173,10 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", p_font, p_bold, p_italic, primary_color=p_color)}
+{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", p_font, p_bold, p_italic, color=p_color)}
 """
     if mode == "bilingual":
-        header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "Secondary", s_font, s_bold, s_italic, primary_color=s_color) + "\n"
+        header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "Secondary", s_font, s_bold, s_italic, color=s_color) + "\n"
     header += "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
 
     lines = [header]
@@ -211,7 +211,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{cfg_style.get('font_name', 'Noto Sans CJK SC')},{fontsize},{cfg_style.get('primary_color', '&H00FFFFFF')},&H000000FF,{cfg_style.get('outline_color', '&H00000000')},&H80000000,0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},2,{margin_h},{margin_h},{margin_v},1
+Style: Default,{cfg_style.get('font_name', 'Noto Sans CJK SC')},{fontsize},{cfg_style.get('zh_color', '&H00FFFFFF')},&H000000FF,{cfg_style.get('outline_color', '&H00000000')},&H80000000,0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},2,{margin_h},{margin_h},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

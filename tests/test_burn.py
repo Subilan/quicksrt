@@ -45,7 +45,7 @@ def test_ass_escape(text, expect):
 def test_style_block():
     style = {
         "font_name": "F", "font_size_ratio": 0.05,
-        "primary_color": "&H00FFFFFF", "outline_color": "&H00000000",
+        "zh_color": "&H00FFFFFF", "outline_color": "&H00000000",
         "outline": 2, "shadow": 1,
     }
     s = _style_block(1920, 1080, style, 54, 40, 20)
@@ -90,12 +90,12 @@ def test_lang_style():
 
 
 def test_lang_color():
-    style = {"primary_color": "&H00FFFFFF", "en_color": "&H00F39621"}
+    style = {"zh_color": "&H00FFFFFF", "en_color": "&H00F39621"}
     assert _lang_color(style, "zh") == "&H00FFFFFF"
     assert _lang_color(style, "en") == "&H00F39621"
-    # en_color 缺省/留空时英文回退 primary_color
-    assert _lang_color({"primary_color": "&H00FFFFFF"}, "en") == "&H00FFFFFF"
-    assert _lang_color({"primary_color": "&H00FFFFFF", "en_color": ""}, "en") == "&H00FFFFFF"
+    # en_color 缺省/留空时英文回退 zh_color
+    assert _lang_color({"zh_color": "&H00FFFFFF"}, "en") == "&H00FFFFFF"
+    assert _lang_color({"zh_color": "&H00FFFFFF", "en_color": ""}, "en") == "&H00FFFFFF"
     assert _lang_color({}, "zh") == "&H00FFFFFF"
 
 
@@ -103,7 +103,7 @@ def test_lang_color():
 
 _STYLE = {
     "font_name": "ZH-Font", "font_size_ratio": 0.05, "margin_v_ratio": 0.05,
-    "primary_color": "&H00FFFFFF", "outline_color": "&H00000000",
+    "zh_color": "&H00FFFFFF", "outline_color": "&H00000000",
     "outline": 2, "shadow": 1,
     "en_font_name": "EN-Font", "en_font_ratio": 0.6,
 }
@@ -119,7 +119,7 @@ def test_build_ass_bilingual_zh_primary():
 
 
 def test_build_ass_en_color():
-    """en_color 只作用于英文样式，中文保持 primary_color。"""
+    """en_color 只作用于英文样式，中文保持 zh_color。"""
     style = {**_STYLE, "en_color": "&H00F39621"}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF," in ass      # 中文白
