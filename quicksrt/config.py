@@ -87,16 +87,16 @@ shadow = 1
 mode = "bilingual"
 # 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
 primary_lang = "zh"
-# 中文假粗体/假斜体（不依赖字体变体；精确字重/斜体直接填 zh_font_name 变体全名）
-zh_faux_bold = false
-zh_faux_italic = false
+# 中文假粗体/假斜体（不依赖字体变体；精确字重/斜体直接填 zh_font_name 变体全名；旧键名 zh_faux_bold/zh_faux_italic 仍兼容）
+zh_fake_bold = false
+zh_fake_italic = false
 # 中文假斜体倾角（libass \\fax 剪切值，正数向右倾、负数向左；留空用 libass 默认假斜体，设置后自动关闭 Italic 标志）
 zh_italic_shear = ""
 # 英文独立字体与样式（英文做主/副语言均生效，字号跟随主/副位置）
 en_font_name = "Noto Sans CJK SC"
 en_font_ratio = 0.6
-en_faux_bold = false
-en_faux_italic = false
+en_fake_bold = false
+en_fake_italic = false
 en_italic_shear = ""
 # 英文独立颜色（ASS AABBGGRR）；留空时英文跟随 zh_color
 en_color = ""
@@ -125,6 +125,21 @@ def _load_dotenv(path: Path = Path(".env")) -> None:
             continue
         key, value = line.split("=", 1)
         os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
+# 旧键名 *_faux_* -> 新键名 *_fake_* 的兼容迁移表（zh/en × bold/italic）
+_FAUX_KEYS = ("zh_faux_bold", "zh_faux_italic", "en_faux_bold", "en_faux_italic")
+
+
+def _migrate_faux(d: dict) -> dict:
+    """旧键名 *_faux_* 迁移为 *_fake_*；同一键新旧名并存时新键优先，返回新 dict。"""
+    migrated = dict(d)
+    for old in _FAUX_KEYS:
+        new = old.replace("faux", "fake")
+        if old in migrated and new not in migrated:
+            migrated[new] = migrated[old]
+        migrated.pop(old, None)
+    return migrated
 
 
 class Config:
@@ -158,7 +173,7 @@ class Config:
         优先级：config.toml 显式键 > preset > 内置默认。
         preset 参数非 None 时临时切换预设（如 CLI --preset），仅影响本次调用，不改 config.toml。
         """
-        explicit = dict(self.user_style)
+        explicit = _migrate_faux(dict(self.user_style))
         if preset is not None:
             explicit["preset"] = preset
         preset_name = explicit.get("preset")
@@ -167,12 +182,14 @@ class Config:
             if base is None:
                 names = ", ".join(sorted(self.presets)) or "无（可创建 presets.toml）"
                 raise RuntimeError(f"样式预设不存在: {preset_name}（可用: {names}）")
-            base = dict(base)
+            base = _migrate_faux(dict(base))
             style = {**base, **explicit}
         else:
             style = explicit
         defaults = dict(self.section("style"))
         defaults.pop("preset", None)
+        for old in _FAUX_KEYS:  # 剔除 defaults 中可能残留的旧键（用户显式旧键已在上游迁移）
+            defaults.pop(old, None)
         return {**defaults, **style}
 
     @property
