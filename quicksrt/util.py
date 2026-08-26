@@ -41,9 +41,10 @@ def parse_ass_color(value: Any) -> str:
     """CSS 风格颜色配置 -> ASS &HAABBGGRR，统一入口。
 
     支持：
-    - rgba(r, g, b, a)：r/g/b 为 0-255，a 为 0.0-1.0（越界自动钳制）
+    - rgba(r, g, b, a)：r/g/b 为 0-255，a 为 0.0-1.0（1=不透明，越界自动钳制）
     - rgb(r, g, b)：等价 rgba(..., 1.0)
-    - #RGB / #RRGGBB / #RRGGBBAA（8 位时末两位为透明度）
+    - #RGB / #RRGGBB / #RRGGBBAA：按十六进制逐字节转换，末尾 AA 选填，
+      直接作为 ASS alpha 字节（00=不透明，FF=全透明，与 ASS 原生格式一致）
     兼容旧 ASS 格式 &HAABBGGRR（原样保留，统一大写）。
     """
     v = str(value).strip()
@@ -67,7 +68,7 @@ def parse_ass_color(value: Any) -> str:
             a = 0
         else:
             r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-            a = 255 - int(h[6:8], 16)  # CSS #RRGGBBAA 的 alpha 字节反转成 ASS alpha
+            a = int(h[6:8], 16)  # 末尾 AA 直接作为 ASS alpha 字节（00=不透明）
         return _to_ass(r, g, b, a)
     m = _RGBA_RE.fullmatch(v)
     if m:

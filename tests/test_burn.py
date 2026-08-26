@@ -177,9 +177,9 @@ def test_lang_color():
 
 
 def test_lang_color_hex_alpha():
-    """#RRGGBBAA：透明度按 CSS 语义（1=不透明）写入 ASS alpha 位。"""
-    assert _lang_color({"zh_color": "#000000FF"}, "zh") == "&H00000000"
-    assert _lang_color({"zh_color": "#00000080"}, "zh") == "&H7F000000"
+    """#RRGGBBAA：末尾 AA 直接作为 ASS alpha 字节（00=不透明，FF=全透明）。"""
+    assert _lang_color({"zh_color": "#000000FF"}, "zh") == "&HFF000000"
+    assert _lang_color({"zh_color": "#00000080"}, "zh") == "&H80000000"
 
 
 # ---------- build_ass_items ----------
@@ -271,11 +271,11 @@ def test_build_ass_bg_dialogue_emitted_first():
 
 
 def test_build_ass_bg_hex8_alpha():
-    """bg_color 用 #RRGGBBAA 同样解析透明度。"""
+    """bg_color 用 #RRGGBBAA：AA 直接作 ASS alpha。"""
     style = {**_STYLE, "bg_enabled": True, "bg_color": "#00000080", "bg_padding_ratio": 0.35}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     bg = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,") and "\\p1" in l)
-    assert "\\1c&H000000&\\1a&H7F&" in bg
+    assert "\\1c&H000000&\\1a&H80&" in bg
 
 
 def test_build_ass_bg_disabled_by_default():
