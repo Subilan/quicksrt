@@ -11,6 +11,7 @@ from quicksrt.steps.burn import (
     _lang_color,
     _lang_shear,
     _lang_style,
+    _resolve_font,
     _style_block,
     _style_mode,
     build_ass_items,
@@ -164,6 +165,43 @@ def test_lang_style_shear_disables_italic_flag():
     assert _lang_style(style, "zh") == ("F", False, False)
     style_en = {"en_font_name": "F2", "en_italic": True, "en_italic_shear": "-0.1"}
     assert _lang_style(style_en, "en") == ("F2", False, False)
+
+
+# ---------- 字体名解析（fontconfig 模式 -> ASS 字体名） ----------
+
+
+def test_resolve_font_plain_name_unchanged():
+    assert _resolve_font("IBM Plex Sans", False, False) == ("IBM Plex Sans", False, False)
+    assert _resolve_font("STHeitiSC-Medium", False, False) == ("STHeitiSC-Medium", False, False)
+
+
+def test_resolve_font_pattern_to_fullname():
+    """":style=" 写法转 "Family Style"（字体全名形式，libass 精确匹配）。"""
+    assert _resolve_font("Heiti SC:style=Medium", False, False) == ("Heiti SC Medium", False, False)
+
+
+def test_resolve_font_pattern_no_fullname_falls_back_family(monkeypatch):
+    """拼接的全名在系统中不存在时退回 family 名，避免整串匹配失败。"""
+    import quicksrt.util as util
+
+    monkeypatch.setattr(util, "font_available", lambda name: name == "Some Family")
+    assert _resolve_font("Some Family:style=Weird", False, False) == ("Some Family", False, False)
+
+
+def test_resolve_font_pattern_weight_slant_flags():
+    """weight/slant 映射粗体/斜体标志，与显式标志合并。"""
+    assert _resolve_font("F:weight=700", False, False) == ("F", True, False)
+    assert _resolve_font("F:slant=italic", False, False) == ("F", False, True)
+    assert _resolve_font("F:style=Bold", False, False) == ("F Bold", True, False)
+    assert _resolve_font("F:style=Medium", True, False) == ("F Medium", True, False)  # 显式粗体保留
+
+
+def test_build_ass_items_font_pattern_in_ass():
+    """配置写 fontconfig 模式时，ASS 样式表用 "Family Style" 字体名。"""
+    style = {**_STYLE, "zh_font_name": "Heiti SC:style=Medium"}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    assert "Style: Default,Heiti SC Medium,54," in ass
+    assert "Style: Secondary,EN-Font,32," in ass
 
 
 def test_lang_color():

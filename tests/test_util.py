@@ -13,6 +13,8 @@ from quicksrt.util import (
     font_available,
     load_meta,
     parse_ass_color,
+    parse_font_pattern,
+    pattern_flags,
     save_meta,
     step_done,
 )
@@ -139,6 +141,13 @@ def test_font_available_real():
     assert font_available("Sans-Serif") is True
 
 
+def test_font_available_fullname_and_psname_real():
+    """libass 按全名/PostScript 名匹配的写法，fc-list 需兜底查询（本机 STHeiti 验证）。"""
+    assert font_available("Heiti SC Medium") is True       # fullname（"Family Style" 写法）
+    assert font_available("STHeitiSC-Medium") is True      # PostScript 名
+    assert font_available("Heiti SC:style=Medium") is True  # fontconfig 模式
+
+
 def test_font_available_no_fclist(monkeypatch):
     import subprocess
 
@@ -148,6 +157,68 @@ def test_font_available_no_fclist(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", boom)
     assert font_available("Noto Sans CJK SC") is True
+
+
+def test_font_available_fallback_queries(monkeypatch):
+    """family 匹配不到时追加 fullname/PostScript 名查询。"""
+    import subprocess
+
+    calls = []
+    outs = {
+        "fc-list family-name": "",
+        "fc-list :fullname=family-name": "",
+        "fc-list :postscriptname=family-name": "hit",
+    }
+
+    def fake_run(cmd, **kw):
+        calls.append(" ".join(cmd))
+        return SimpleNamespace(stdout=outs.get(" ".join(cmd), ""), returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert font_available("family-name") is True
+    assert calls == ["fc-list family-name", "fc-list :fullname=family-name", "fc-list :postscriptname=family-name"]
+
+
+@pytest.mark.parametrize(
+    ("name", "expect"),
+    [
+        ("Heiti SC", ("Heiti SC", None, None, None)),
+        ("Heiti SC:style=Medium", ("Heiti SC", "Medium", None, None)),
+        ("Heiti SC:style=Medium,weight=500", ("Heiti SC", "Medium", "500", None)),
+        ("Heiti SC:weight=700,slant=italic", ("Heiti SC", None, "700", "italic")),
+        ("  Family : style=Italic ", ("Family", "Italic", None, None)),
+        ("Family:unknown=1,style=Bold", ("Family", "Bold", None, None)),  # 未知键忽略
+        ("Family:style=", ("Family", "", None, None)),
+        ("", ("", None, None, None)),
+    ],
+)
+def test_parse_font_pattern(name, expect):
+    assert parse_font_pattern(name) == expect
+
+
+@pytest.mark.parametrize(
+    ("style", "weight", "slant", "expect"),
+    [
+        (None, None, None, (False, False)),
+        ("Medium", None, None, (False, False)),
+        ("SemiBold", None, None, (True, False)),
+        ("Black", None, None, (True, False)),
+        ("Italic", None, None, (False, True)),
+        ("Bold Italic", None, None, (True, True)),
+        (None, "500", None, (False, False)),
+        (None, "600", None, (True, False)),
+        (None, "900", None, (True, False)),
+        (None, "bold", None, (True, False)),
+        (None, "light", None, (False, False)),
+        (None, None, "italic", (False, True)),
+        (None, None, "oblique", (False, True)),
+        (None, None, "roman", (False, False)),
+        ("Medium", "900", None, (True, False)),   # 显式 weight 覆盖 style 名推断
+        ("Italic", None, "roman", (False, False)),  # slant 覆盖 style 名推断
+    ],
+)
+def test_pattern_flags(style, weight, slant, expect):
+    assert pattern_flags(style, weight, slant) == expect
 
 
 def test_color_enabled_precedence(monkeypatch):
