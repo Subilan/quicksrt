@@ -53,41 +53,12 @@ uv run quicksrt clean -y                 # 删除中间产物
 
 翻译环节使用结构化输出（`json_object` 模式 + pydantic 逐条校验），批次并行翻译（`[translate] max_concurrency`）。可通过 `[translate] context_template` 注入视频上下文（占位符取 meta.json 字段，如 `{title}` `{description}` `{uploader}` `{url}`，缺失渲染为空串；修改模板会触发重译）。
 
-## 开发
-
-```bash
-uv sync                 # 安装依赖（含 dev 组的 pytest）
-uv run pytest           # 运行全部单元测试（纯本地，不涉及外部系统）
-```
-
-测试覆盖：核心数据模型序列化（models）、翻译批次解析与重试/兜底逻辑（translate，HTTP 层 mock）、ASR 结果解析（transcribe）、refine 拆句/标点/时间分配、SRT 规范化与渲染、config 合并、util 工具、ASS 样式与语言模式生成（burn）、preview 分辨率解析/条目选取/命令构建。外部系统（OSS、DeepSeek/ASR HTTP 调用、ffmpeg、yt-dlp）不在测试范围。
-
-提交信息遵循 Conventional Commits：`fix:` 修 bug、`feat:` 新功能、`refactor:` 重构（行为不变）、`docs:` 文档、`chore:` 杂项；scope 可选（如 `fix(cli):`）。描述小写开头、祈使句、不加句号。
-
-## 产物结构
-
-```
-work/<video_id>/
-  video.mp4          下载的视频
-  audio.wav          16kHz 单声道（ASR 输入）
-  meta.json          元数据与各环节状态
-  asr_raw.json       阿里云原始识别结果
-  segments_en.json   英文 segments（统一格式）
-  segments_zh.json   中文 segments
-  batches/tr_*.json  翻译批次缓存
-  refined.json        refine 后双语条目（拆句/标点/接缝已处理）
-  subs.srt / subs.ass 字幕中间产物
-dist/<标题>.mp4           最终成品
-  <标题>_preview_<分辨率>.png  预览 PNG（preview 命令）
-```
-
-## 配置要点（config.toml）
-
-- `[asr]` 默认 `qwen3-asr-flash-filetrans`（异步文件转写，支持字级时间戳，最长 12 小时），源语言 `en`
-- `[oss]` 音频上传到私有 bucket，生成 7 天预签名 URL 供 ASR 拉取，用完即弃
-- `[refine]` 显示层优化：拆句（分句标点处、可配置最大长度；`split_on_space = true` 时空格也可作分句分隔符）、去句号、填平微小间隔
-- `[style]` 烧录样式：可引用 `presets.toml` 中的命名预设（`preset = "default"`），预设为基底、`[style]` 显式字段覆盖；预设之间可相互继承（预设内写 `extends = "父预设名"` 以父预设为基底、自身键覆盖，支持链式继承，循环继承/引用不存在的预设会报错）——无覆盖（只写引用）、部分覆盖（改部分键）、全量覆盖（不写 `extends` 独立定义）三种形态；样式项：默认 `sans-serif`（fontconfig 通用家族名，不依赖系统安装的特定字体，渲染时回退到系统默认中文字体）、白字黑描边、字号/边距按分辨率比例；语言模式 `mode`（`bilingual` 双语 / `mono` 单语）+ `primary_lang`（`zh`/`en`，主语言在上大字号、副语言在下小字号）；中文样式 `zh_font_name`（可填变体全名如 `IBM Plex Sans SemiBold` 精确指定字重/斜体）/`zh_bold`/`zh_italic`/`zh_italic_shear`（假斜体倾角，建议 -2~2），英文独立样式 `en_font_name`/`en_bold`/`en_italic`/`en_italic_shear`/`en_font_ratio`（英文字号默认 60%）；字幕背景 `bg_enabled`/`bg_color`（CSS 颜色，默认半透明黑 `rgba(0,0,0,0.5)`）/`bg_padding_ratio`——全宽半透明矩形条，分层渲染，随字幕显示
-- `[preview]` 预览背景色 `background`（ffmpeg color 源支持的颜色名或 `#RRGGBB`，默认 black）
-- `[burn]` 按源编码器自动选 libx264/libx265/libsvtav1，CRF 质量模式，音频流 copy 不重编码
-
 已知限制：硬烧录必然重编码，画质损失通过 CRF 18 + slow preset 控制；源视频为 HDR 时未做色域转换，输出按 yuv420p 处理。
+
+## 文档
+
+技术细节见 `docs/`：
+
+- [开发指南（测试/代码结构/提交规范）](docs/development.md)
+- [产物结构（work/ 与 dist/ 每个文件说明）](docs/project-structure.md)
+- [配置文件详解（config.toml 全部字段 / presets.toml / .env）](docs/configuration.md)
