@@ -160,10 +160,85 @@ def run_cmd(cmd: list[str], log: logging.Logger, timeout: int | None = None) -> 
 # fontconfig 通用家族名：fc-list 不解析它们，但 libass/fontconfig 总能解析，视为始终可用
 _GENERIC_FAMILIES = {"sans-serif", "serif", "monospace"}
 
+# fontconfig 模式中粗/斜体关键词（style 名子串 / weight 名）
+_BOLD_STYLE_WORDS = ("bold", "semibold", "demibold", "extrabold", "ultrabold", "heavy", "black")
+_ITALIC_STYLE_WORDS = ("italic", "oblique")
+_WEIGHT_NAMES = {
+    "thin": 100, "extralight": 200, "light": 300, "regular": 400, "normal": 400,
+    "medium": 500, "semibold": 600, "demibold": 600, "bold": 700, "extrabold": 800,
+    "ultrabold": 800, "heavy": 900, "black": 900,
+}
+
+
+def parse_font_pattern(name: str) -> tuple[str, str | None, str | None, str | None]:
+    """解析 fontconfig 字体模式语法 "Family[:key=val[,key=val...]]"。
+
+    返回 (family, style, weight, slant)；无冒号时后三者均为 None。
+    只识别 style/weight/slant 键（值原样保留），其余键忽略（宽松兼容）。
+    例："Heiti SC:style=Medium" -> ("Heiti SC", "Medium", None, None)
+    """
+    s = name.strip()
+    if ":" not in s:
+        return s, None, None, None
+    family, _, props = s.partition(":")
+    family = family.strip()
+    style = weight = slant = None
+    for pair in props.split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        key, _, value = pair.partition("=")
+        key = key.strip().lower()
+        value = value.strip()
+        if key == "style":
+            style = value
+        elif key == "weight":
+            weight = value
+        elif key == "slant":
+            slant = value
+    return family, style, weight, slant
+
+
+def pattern_flags(style: str | None, weight: str | None, slant: str | None) -> tuple[bool, bool]:
+    """由 fontconfig 模式中的 style/weight/slant 推导 ASS 粗体/斜体标志。
+
+    weight 值（fontconfig 100-1000，>=600 视为粗体；兼容 "bold" 等名字）；
+    slant 为 italic/oblique 视为斜体；style 名含粗/斜体词同理。
+    返回 (bold, italic)。
+    """
+    bold = italic = False
+    if style:
+        sl = style.lower()
+        bold = any(w in sl for w in _BOLD_STYLE_WORDS)
+        italic = any(w in sl for w in _ITALIC_STYLE_WORDS)
+    if weight:
+        w = weight.strip().lower()
+        if w.isdigit():
+            bold = int(w) >= 600
+        elif w in _WEIGHT_NAMES:
+            bold = _WEIGHT_NAMES[w] >= 600
+        # 未知 weight 名保持 style 名推断结果
+    if slant:
+        sl = slant.strip().lower()
+        if sl in ("italic", "oblique"):
+            italic = True
+        elif sl in ("roman", "normal", "upright"):
+            italic = False
+    return bold, italic
+
+
+def _fc_match(pattern: str) -> bool:
+    proc = subprocess.run(["fc-list", pattern], capture_output=True, text=True, timeout=10)
+    return bool(proc.stdout.strip())
+
 
 def font_available(name: str) -> bool:
     """fontconfig 检查字体是否可用（fc-list 有匹配输出即存在）。
 
+    fc-list 默认只按 family 名匹配；libass 还会按字体全名（fullname，即
+    "Family Style" 写法）与 PostScript 名匹配，因此这里在 family 匹配不到时
+    追加全名/PostScript 名兜底查询，避免 "IBM Plex Sans SemiBold"、
+    "STHeitiSC-Medium" 这类写法被误判为缺失。
     通用家族名（sans-serif/serif/monospace）视为可用；fc-list 不可用
     （如无 fontconfig 的环境）时返回 True，避免误报。
     """
@@ -172,10 +247,9 @@ def font_available(name: str) -> bool:
     if name.strip().lower() in _GENERIC_FAMILIES:
         return True
     try:
-        proc = subprocess.run(
-            ["fc-list", name], capture_output=True, text=True, timeout=10
-        )
-        return bool(proc.stdout.strip())
+        if _fc_match(name):
+            return True
+        return _fc_match(f":fullname={name}") or _fc_match(f":postscriptname={name}")
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
         return True
 

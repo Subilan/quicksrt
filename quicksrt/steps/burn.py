@@ -8,7 +8,8 @@ CRF 质量模式 + 慢速 preset，尽量降低二次编码损失。
 - mode: bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
 - primary_lang: zh | en（主语言，大字号在上）
 中文样式用 zh_font_name/zh_bold/zh_italic/zh_italic_shear，英文用 en_font_name/en_bold/en_italic/en_italic_shear；
-字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体。
+字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体，
+也支持 fontconfig 模式语法 "Family:style=Medium,weight=500"（libass 按字体全名精确匹配）。
 """
 
 from __future__ import annotations
@@ -137,10 +138,34 @@ def _lang_shear(cfg_style: dict, lang: str) -> str | None:
     return v if v not in (None, "") else None
 
 
-def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
-    """某语言的字体系列、粗体、斜体标志。
+def _resolve_font(cfg_font: str, bold: bool, italic: bool) -> tuple[str, bool, bool]:
+    """把字体配置解析为 ASS 实际使用的 (字体名, 粗体, 斜体)。
 
-    字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体；
+    - 无冒号：原样使用（变体全名 "IBM Plex Sans SemiBold"、PostScript 名
+      "STHeitiSC-Medium" 等均可，libass 按全名/PostScript 名匹配）
+    - 含冒号（fontconfig 模式 "Family:style=/weight=/slant="）：写 ASS 用
+      "Family Style"（字体全名形式，libass 精确匹配）；该写法查不到
+      （字体无对应全名）时回退 family 名，避免整串匹配失败导致全部丢失
+    - style/weight/slant 与 style 名中的粗/斜体词映射为粗体/斜体标志，
+      与显式 bold/italic（假粗体/假斜体）合并
+    """
+    family, style, weight, slant = util.parse_font_pattern(cfg_font)
+    w_bold, w_italic = util.pattern_flags(style, weight, slant)
+    bold = bold or w_bold
+    italic = italic or w_italic
+    if style is not None:
+        full = f"{family} {style}".strip()
+        if util.font_available(full):
+            return full, bold, italic
+        return family, bold, italic  # 无对应全名，退回家族名由渲染器按标志选择
+    return family, bold, italic
+
+
+def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
+    """某语言的字体系列、粗体、斜体标志（已解析为 ASS 实际字体名）。
+
+    字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）或
+    fontconfig 模式（如 "Heiti SC:style=Medium"）精确指定字重/斜体；
     zh_bold/zh_italic 为假粗体/假斜体（不依赖字体变体）；
     zh_italic_shear 设置时用 \\fax 剪切自定义倾角（此时 Italic 标志关，避免双重倾斜）。
     """
@@ -150,13 +175,13 @@ def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
         italic = bool(cfg_style.get("en_italic", False))
         if _lang_shear(cfg_style, "en") is not None:
             italic = False
-        return font, bold, italic
+        return _resolve_font(font, bold, italic)
     font = cfg_style.get("zh_font_name", "sans-serif")
     bold = bool(cfg_style.get("zh_bold", False))
     italic = bool(cfg_style.get("zh_italic", False))
     if _lang_shear(cfg_style, "zh") is not None:
         italic = False
-    return font, bold, italic
+    return _resolve_font(font, bold, italic)
 
 
 _DEFAULT_FONT = "sans-serif"  # fontconfig 通用家族名，任何系统均可解析并回退到系统默认中文字体
@@ -242,7 +267,8 @@ def build_ass(srt_path: Path, cfg_style: dict, probe: dict) -> str:
     fontsize = max(12, round(height * float(cfg_style.get("font_size_ratio", 0.05))))
     margin_v = round(height * float(cfg_style.get("margin_v_ratio", 0.05)))
     margin_h = round(width * 0.03)
-    font = _ensure_font(cfg_style.get("zh_font_name", _DEFAULT_FONT), "zh")
+    font = cfg_style.get("zh_font_name", _DEFAULT_FONT)
+    font = _ensure_font(_resolve_font(font, False, False)[0], "zh")
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
