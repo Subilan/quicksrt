@@ -79,10 +79,11 @@ def probe_video(path: Path) -> dict:
 
 
 def find_latest_workdir(cfg) -> Path | None:
+    """work 下最新视频工作目录（含 meta.json 的子目录；杂目录如 fx/ 不算）。"""
     base = cfg.work_dir
     if not base.exists():
         return None
-    dirs = [d for d in base.iterdir() if d.is_dir()]
+    dirs = [d for d in base.iterdir() if d.is_dir() and (d / META_FILE).exists()]
     if not dirs:
         return None
     return max(dirs, key=lambda d: d.stat().st_mtime)

@@ -27,7 +27,7 @@ bg_padding_ratio = 0.35
 
 [plex]
 # 中文字体与整体字号/边距
-zh_font_name = "IBM Plex Sans SC"
+zh_font_name = "IBM Plex Sans SC Semibold"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
 zh_color = "&H00FFFFFF"
@@ -39,7 +39,7 @@ mode = "bilingual"
 # 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
 primary_lang = "zh"
 # 中文假粗体（字体无真粗体变体时的合成加粗）
-zh_fake_bold = true
+zh_fake_bold = false
 zh_fake_italic = false
 # 英文独立字体与样式：直接填斜体变体全名，精确使用真斜体
 en_font_name = "IBM Plex Sans Italic"

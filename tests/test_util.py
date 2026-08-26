@@ -42,12 +42,25 @@ def test_find_latest_workdir(tmp_path):
     cfg = SimpleNamespace(work_dir=tmp_path)
     assert find_latest_workdir(cfg) is None  # 空目录
 
-    (tmp_path / "old").mkdir()
-    (tmp_path / "new").mkdir()
     import os
+    # 仅含 meta.json 的视频工作目录算候选
+    (tmp_path / "old").mkdir()
+    (tmp_path / "old" / "meta.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "new").mkdir()
+    (tmp_path / "new" / "meta.json").write_text("{}", encoding="utf-8")
     os.utime(tmp_path / "old", (1, 1))
     os.utime(tmp_path / "new", (2, 2))
     assert find_latest_workdir(cfg).name == "new"
+
+    # 杂目录（无 meta.json）不计入候选，即使 mtime 最新
+    (tmp_path / "junk").mkdir()
+    os.utime(tmp_path / "junk", (3, 3))
+    assert find_latest_workdir(cfg).name == "new"
+
+    # 全部都是杂目录时返回 None
+    (tmp_path / "old" / "meta.json").unlink()
+    (tmp_path / "new" / "meta.json").unlink()
+    assert find_latest_workdir(cfg) is None
 
 
 def test_save_meta_creates_dir(tmp_path):
