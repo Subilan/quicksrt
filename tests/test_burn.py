@@ -7,6 +7,7 @@ from quicksrt.steps.burn import (
     _ass_ts,
     _bg_color_parts,
     _bg_dialogue,
+    _ensure_font,
     _lang_color,
     _lang_shear,
     _lang_style,
@@ -14,6 +15,14 @@ from quicksrt.steps.burn import (
     _style_mode,
     build_ass_items,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_font_check(monkeypatch):
+    """默认让测试里的假字体名通过校验；字体校验行为由专项用例覆盖。"""
+    import quicksrt.util as util
+
+    monkeypatch.setattr(util, "font_available", lambda name: True)
 
 
 @pytest.mark.parametrize(
@@ -88,6 +97,49 @@ def test_lang_style():
     assert _lang_style(style, "zh") == ("F1", True, False)
     assert _lang_style(style, "en") == ("F2", False, True)
     assert _lang_style({}, "en")[0] == "Noto Sans CJK SC"  # en 字体缺省回退主字体
+
+
+# ---------- 字体缺失校验与默认字体回退 ----------
+
+
+def test_ensure_font_available_unchanged(caplog, monkeypatch):
+    import quicksrt.util as util
+
+    monkeypatch.setattr(util, "font_available", lambda name: True)
+    with caplog.at_level("WARNING", logger="quicksrt"):
+        assert _ensure_font("MyFont", "primary(zh)") == "MyFont"
+    assert not caplog.records
+
+
+def test_ensure_font_missing_falls_back(caplog, monkeypatch):
+    import quicksrt.util as util
+
+    monkeypatch.setattr(util, "font_available", lambda name: name != "GhostFont")
+    with caplog.at_level("WARNING", logger="quicksrt"):
+        assert _ensure_font("GhostFont", "primary(zh)") == "Noto Sans CJK SC"
+    assert len(caplog.records) == 1
+    assert "GhostFont" in caplog.text and "回退到默认字体" in caplog.text
+
+
+def test_ensure_font_missing_and_default_missing(caplog, monkeypatch):
+    import quicksrt.util as util
+
+    monkeypatch.setattr(util, "font_available", lambda name: False)
+    with caplog.at_level("WARNING", logger="quicksrt"):
+        assert _ensure_font("GhostFont", "zh") == "GhostFont"  # 默认字体也不存在时保持原名
+    assert len(caplog.records) == 2
+
+
+def test_build_ass_items_font_missing_warns(caplog, monkeypatch):
+    """配置字体缺失时：ASS 使用默认字体且输出警告。"""
+    import quicksrt.util as util
+
+    monkeypatch.setattr(util, "font_available", lambda name: name != "ZH-Font")
+    style = {**_STYLE, "zh_font_name": "ZH-Font"}
+    with caplog.at_level("WARNING", logger="quicksrt"):
+        ass = build_ass_items(_ITEMS, style, _PROBE)
+    assert "Style: Default,Noto Sans CJK SC,54," in ass
+    assert "ZH-Font" in caplog.text and "回退到默认字体" in caplog.text
 
 
 def test_lang_shear():

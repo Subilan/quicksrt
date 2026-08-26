@@ -27,7 +27,7 @@ bg_padding_ratio = 0.35
 
 [plex]
 # 中文字体与整体字号/边距
-zh_font_name = "IBM Plex Sans SC Semibold"
+zh_font_name = "IBM Plex Sans SC Medium"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
 zh_color = "&H00FFFFFF"

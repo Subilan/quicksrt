@@ -160,6 +160,24 @@ def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
     return font, bold, italic
 
 
+_DEFAULT_FONT = "Noto Sans CJK SC"
+
+
+def _ensure_font(font: str, ctx: str) -> str:
+    """字体在系统中不存在时给出警告并回退默认字体（默认字体也不存在则仅警告，保持原名）。"""
+    if util.font_available(font):
+        return font
+    log = logging.getLogger("quicksrt")
+    log.warning(
+        "[burn] 字体 %r（%s）在系统中找不到，将回退到默认字体 %r",
+        font, ctx, _DEFAULT_FONT,
+    )
+    if util.font_available(_DEFAULT_FONT):
+        return _DEFAULT_FONT
+    log.warning("[burn] 默认字体 %r 也不存在，保持原字体名，由渲染器自行兜底", _DEFAULT_FONT)
+    return font
+
+
 def build_ass_items(items: list[dict], cfg_style: dict, probe: dict,
                     mode: str = "bilingual", primary_lang: str = "zh") -> str:
     """从 refined 条目生成 ASS。
@@ -176,6 +194,8 @@ def build_ass_items(items: list[dict], cfg_style: dict, probe: dict,
     secondary_lang = "en" if primary_lang == "zh" else "zh"
     p_font, p_bold, p_italic = _lang_style(cfg_style, primary_lang)
     s_font, s_bold, s_italic = _lang_style(cfg_style, secondary_lang)
+    p_font = _ensure_font(p_font, f"primary({primary_lang})")
+    s_font = _ensure_font(s_font, f"secondary({secondary_lang})")
     p_color = _lang_color(cfg_style, primary_lang)
     s_color = _lang_color(cfg_style, secondary_lang)
     p_shear = _lang_shear(cfg_style, primary_lang)
@@ -223,6 +243,7 @@ def build_ass(srt_path: Path, cfg_style: dict, probe: dict) -> str:
     fontsize = max(12, round(height * float(cfg_style.get("font_size_ratio", 0.05))))
     margin_v = round(height * float(cfg_style.get("margin_v_ratio", 0.05)))
     margin_h = round(width * 0.03)
+    font = _ensure_font(cfg_style.get("zh_font_name", _DEFAULT_FONT), "zh")
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -232,7 +253,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{cfg_style.get('zh_font_name', 'Noto Sans CJK SC')},{fontsize},{cfg_style.get('zh_color', '&H00FFFFFF')},&H000000FF,{cfg_style.get('outline_color', '&H00000000')},&H80000000,0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},2,{margin_h},{margin_h},{margin_v},1
+Style: Default,{font},{fontsize},{cfg_style.get('zh_color', '&H00FFFFFF')},&H000000FF,{cfg_style.get('outline_color', '&H00000000')},&H80000000,0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},2,{margin_h},{margin_h},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

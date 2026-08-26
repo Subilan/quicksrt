@@ -5,7 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from quicksrt.util import find_latest_workdir, fmt_ts, load_meta, save_meta, step_done
+from quicksrt.util import (
+    find_latest_workdir,
+    fmt_ts,
+    font_available,
+    load_meta,
+    save_meta,
+    step_done,
+)
 
 
 @pytest.mark.parametrize(
@@ -67,3 +74,19 @@ def test_save_meta_creates_dir(tmp_path):
     p = tmp_path / "a" / "b"
     save_meta(p, {"x": 1})
     assert json.loads((p / "meta.json").read_text(encoding="utf-8")) == {"x": 1}
+
+
+def test_font_available_real():
+    assert font_available("Noto Sans CJK SC") is True      # 本机已安装
+    assert font_available("definitely-not-a-font-xyz") is False
+
+
+def test_font_available_no_fclist(monkeypatch):
+    import subprocess
+
+    # fc-list 不可用（如无 fontconfig 的环境）时跳过校验，不误报
+    def boom(*args, **kwargs):
+        raise FileNotFoundError("fc-list")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert font_available("Noto Sans CJK SC") is True
