@@ -58,10 +58,10 @@ def _style_block(
     color: str | None = None,
 ) -> str:
     font = font_name or cfg_style.get("zh_font_name", "sans-serif")
-    color = color or cfg_style.get("zh_color", "&H00FFFFFF")
+    color = util.parse_ass_color(color or cfg_style.get("zh_color", "#FFFFFF"))
     return (
         f"Style: {name},{font},{fontsize},{color},&H000000FF,"
-        f"{cfg_style.get('outline_color', '&H00000000')},&H80000000,"
+        f"{util.parse_ass_color(cfg_style.get('outline_color', '#000000'))},&H80000000,"
         f"{1 if bold else 0},{1 if italic else 0},0,0,100,100,0,0,1,"
         f"{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},"
         f"2,{margin_h},{margin_h},{margin_v},1"
@@ -90,7 +90,6 @@ def _bg_color_parts(bg_color: str) -> tuple[str, str]:
     c = bg_color.strip()
     return "&H" + c[4:10], "&H" + c[2:4]
 
-
 def _bg_rect(w: float, h: float) -> str:
     """直角矩形 drawing 路径（原点在块左上，\an2\pos 定位左下角）。"""
     return f"m 0 0 l {w:.2f} 0 l {w:.2f} {h:.2f} l 0 {h:.2f} l 0 0"
@@ -114,7 +113,7 @@ def _bg_dialogue(it: dict, width: int, height: int, fontsize: int, en_size: int,
     # 块高 = 前 n-1 行行距和 + 末行字形高 + 上下内边距；块底 = 文本块底减末行 descent 空隙再加下内边距
     block_h = sum(pitches[:-1]) + _BG_GLYPH_EM * last + 2 * pad
     block_bottom = height - margin_v - _BG_DESCENT * last + pad
-    bg_color = cfg_style.get("bg_color", "&H80000000")
+    bg_color = util.parse_ass_color(cfg_style.get("bg_color", "rgba(0, 0, 0, 0.5)"))
     color, alpha = _bg_color_parts(bg_color)
     return (
         f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,"
@@ -125,10 +124,10 @@ def _bg_dialogue(it: dict, width: int, height: int, fontsize: int, en_size: int,
 
 
 def _lang_color(cfg_style: dict, lang: str) -> str:
-    """某语言的主色：en 用 en_color（未设置/留空时回退 zh_color），zh 用 zh_color。"""
+    """某语言的主色（ASS &HAABBGGRR）：en 用 en_color（未设置/留空时回退 zh_color），zh 用 zh_color。"""
     if lang == "en":
-        return cfg_style.get("en_color") or cfg_style.get("zh_color", "&H00FFFFFF")
-    return cfg_style.get("zh_color", "&H00FFFFFF")
+        return util.parse_ass_color(cfg_style.get("en_color") or cfg_style.get("zh_color", "#FFFFFF"))
+    return util.parse_ass_color(cfg_style.get("zh_color", "#FFFFFF"))
 
 
 def _lang_shear(cfg_style: dict, lang: str) -> str | None:
@@ -253,7 +252,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{fontsize},{cfg_style.get('zh_color', '&H00FFFFFF')},&H000000FF,{cfg_style.get('outline_color', '&H00000000')},&H80000000,0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},2,{margin_h},{margin_h},{margin_v},1
+Style: Default,{font},{fontsize},{util.parse_ass_color(cfg_style.get('zh_color', '#FFFFFF'))},&H000000FF,{util.parse_ass_color(cfg_style.get('outline_color', '#000000'))},&H80000000,0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},2,{margin_h},{margin_h},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

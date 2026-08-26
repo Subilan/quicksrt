@@ -72,9 +72,9 @@ preset = "default"
 zh_font_name = "sans-serif"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
-# 中文主色（ASS AABBGGRR）
-zh_color = "&H00FFFFFF"
-outline_color = "&H00000000"
+# 中文主色（CSS 颜色：rgb()/rgba()/#HEX，如 #FFFFFF / rgba(255,255,255,1)）
+zh_color = "#FFFFFF"
+outline_color = "#000000"
 outline = 2
 shadow = 1
 # 语言模式：bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
@@ -93,9 +93,9 @@ en_bold = false
 en_italic = false
 en_italic_shear = ""
 # 字幕背景：全宽半透明矩形条（分层渲染：背景 Dialogue + 文本 Dialogue）
-# bg_color 为 ASS AABBGGRR 格式（&H80 前缀即 50% 透明）；bg_padding_ratio 为内边距相对字号比例
+# bg_color 为 CSS 颜色（如 rgba(0,0,0,0.5) 半透明黑，或 #00000080）；bg_padding_ratio 为内边距相对字号比例
 bg_enabled = false
-bg_color = "&H80000000"
+bg_color = "rgba(0, 0, 0, 0.5)"
 bg_padding_ratio = 0.35
 
 [preview]

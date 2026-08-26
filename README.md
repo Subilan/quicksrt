@@ -86,7 +86,7 @@ dist/<标题>.mp4           最终成品
 - `[asr]` 默认 `qwen3-asr-flash-filetrans`（异步文件转写，支持字级时间戳，最长 12 小时），源语言 `en`
 - `[oss]` 音频上传到私有 bucket，生成 7 天预签名 URL 供 ASR 拉取，用完即弃
 - `[refine]` 显示层优化：拆句（分句标点处、可配置最大长度；`split_on_space = true` 时空格也可作分句分隔符）、去句号、填平微小间隔
-- `[style]` 烧录样式：可引用 `presets.toml` 中的命名预设（`preset = "default"`），预设为基底、`[style]` 显式字段覆盖；样式项：默认 `sans-serif`（fontconfig 通用家族名，不依赖系统安装的特定字体，渲染时回退到系统默认中文字体）、白字黑描边、字号/边距按分辨率比例；语言模式 `mode`（`bilingual` 双语 / `mono` 单语）+ `primary_lang`（`zh`/`en`，主语言在上大字号、副语言在下小字号）；中文样式 `zh_font_name`（可填变体全名如 `IBM Plex Sans SemiBold` 精确指定字重/斜体）/`zh_bold`/`zh_italic`/`zh_italic_shear`（假斜体倾角），英文独立样式 `en_font_name`/`en_bold`/`en_italic`/`en_italic_shear`/`en_font_ratio`（英文字号默认 60%）；字幕背景 `bg_enabled`/`bg_color`（ASS AABBGGRR，默认半透明黑 `&H80000000`）/`bg_padding_ratio`——全宽半透明矩形条，分层渲染，随字幕显示
+- `[style]` 烧录样式：可引用 `presets.toml` 中的命名预设（`preset = "default"`），预设为基底、`[style]` 显式字段覆盖；样式项：默认 `sans-serif`（fontconfig 通用家族名，不依赖系统安装的特定字体，渲染时回退到系统默认中文字体）、白字黑描边、字号/边距按分辨率比例；语言模式 `mode`（`bilingual` 双语 / `mono` 单语）+ `primary_lang`（`zh`/`en`，主语言在上大字号、副语言在下小字号）；中文样式 `zh_font_name`（可填变体全名如 `IBM Plex Sans SemiBold` 精确指定字重/斜体）/`zh_bold`/`zh_italic`/`zh_italic_shear`（假斜体倾角），英文独立样式 `en_font_name`/`en_bold`/`en_italic`/`en_italic_shear`/`en_font_ratio`（英文字号默认 60%）；字幕背景 `bg_enabled`/`bg_color`（CSS 颜色，默认半透明黑 `rgba(0,0,0,0.5)`）/`bg_padding_ratio`——全宽半透明矩形条，分层渲染，随字幕显示
 - `[preview]` 预览背景色 `background`（ffmpeg color 源支持的颜色名或 `#RRGGBB`，默认 black）
 - `[burn]` 按源编码器自动选 libx264/libx265/libsvtav1，CRF 质量模式，音频流 copy 不重编码
 

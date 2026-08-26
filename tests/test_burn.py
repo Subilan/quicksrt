@@ -55,12 +55,21 @@ def test_ass_escape(text, expect):
 def test_style_block():
     style = {
         "zh_font_name": "F", "font_size_ratio": 0.05,
-        "zh_color": "&H00FFFFFF", "outline_color": "&H00000000",
+        "zh_color": "#FFFFFF", "outline_color": "#000000",
         "outline": 2, "shadow": 1,
     }
     s = _style_block(1920, 1080, style, 54, 40, 20)
     assert s.startswith("Style: Default,F,54,&H00FFFFFF,&H000000FF,")
     assert ",0,0,0,0,100,100,0,0,1,2,1,2,20,20,40,1" in s
+
+
+def test_style_block_css_color():
+    """CSS 颜色经统一解析后写入 ASS：rgb()/rgba()/#HEX 均可用。"""
+    style = {"zh_font_name": "F", "zh_color": "rgb(255, 0, 0)",
+             "outline_color": "rgba(0, 255, 0, 1)", "outline": 2, "shadow": 1}
+    s = _style_block(1920, 1080, style, 54, 40, 20)
+    assert s.startswith("Style: Default,F,54,&H000000FF,&H000000FF,")  # red, BBGGRR
+    assert ",&H0000FF00," in s  # green outline
 
 
 def test_style_block_bold_italic_custom_font():
@@ -158,20 +167,26 @@ def test_lang_style_shear_disables_italic_flag():
 
 
 def test_lang_color():
-    style = {"zh_color": "&H00FFFFFF", "en_color": "&H00F39621"}
+    style = {"zh_color": "#FFFFFF", "en_color": "rgba(33, 150, 243, 1)"}
     assert _lang_color(style, "zh") == "&H00FFFFFF"
     assert _lang_color(style, "en") == "&H00F39621"
     # en_color 缺省/留空时英文回退 zh_color
-    assert _lang_color({"zh_color": "&H00FFFFFF"}, "en") == "&H00FFFFFF"
-    assert _lang_color({"zh_color": "&H00FFFFFF", "en_color": ""}, "en") == "&H00FFFFFF"
+    assert _lang_color({"zh_color": "#FFFFFF"}, "en") == "&H00FFFFFF"
+    assert _lang_color({"zh_color": "#FFFFFF", "en_color": ""}, "en") == "&H00FFFFFF"
     assert _lang_color({}, "zh") == "&H00FFFFFF"
+
+
+def test_lang_color_hex_alpha():
+    """#RRGGBBAA：透明度按 CSS 语义（1=不透明）写入 ASS alpha 位。"""
+    assert _lang_color({"zh_color": "#000000FF"}, "zh") == "&H00000000"
+    assert _lang_color({"zh_color": "#00000080"}, "zh") == "&H7F000000"
 
 
 # ---------- build_ass_items ----------
 
 _STYLE = {
     "zh_font_name": "ZH-Font", "font_size_ratio": 0.05, "margin_v_ratio": 0.05,
-    "zh_color": "&H00FFFFFF", "outline_color": "&H00000000",
+    "zh_color": "#FFFFFF", "outline_color": "#000000",
     "outline": 2, "shadow": 1,
     "en_font_name": "EN-Font", "en_font_ratio": 0.6,
 }
@@ -188,10 +203,10 @@ def test_build_ass_bilingual_zh_primary():
 
 def test_build_ass_en_color():
     """en_color 只作用于英文样式，中文保持 zh_color。"""
-    style = {**_STYLE, "en_color": "&H00F39621"}
+    style = {**_STYLE, "en_color": "#2196F3"}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF," in ass      # 中文白
-    assert "Style: Secondary,EN-Font,32,&H00F39621," in ass    # 英文蓝
+    assert "Style: Secondary,EN-Font,32,&H00F39621," in ass    # 英文蓝（#2196F3 -> BBGGRR F39621）
     # 英文为主语言时：Default 用 en_color
     ass_en = build_ass_items(_ITEMS, style, _PROBE, mode="bilingual", primary_lang="en")
     assert "Style: Default,EN-Font,54,&H00F39621," in ass_en
@@ -243,7 +258,7 @@ def test_bg_color_parts():
 
 
 def test_build_ass_bg_dialogue_emitted_first():
-    style = {**_STYLE, "bg_enabled": True, "bg_color": "&H80000000", "bg_padding_ratio": 0.35}
+    style = {**_STYLE, "bg_enabled": True, "bg_color": "rgba(0, 0, 0, 0.5)", "bg_padding_ratio": 0.35}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert ass.count("Dialogue: 0,") == 2  # 背景 + 文本
     bg, text = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
@@ -253,6 +268,14 @@ def test_build_ass_bg_dialogue_emitted_first():
     assert "\\3a&HFF&\\4a&HFF&" in bg  # 描边/阴影透明
     assert bg.startswith("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,")
     assert "你好\\N{\\rSecondary}hello" in text  # 文本行不受影响
+
+
+def test_build_ass_bg_hex8_alpha():
+    """bg_color 用 #RRGGBBAA 同样解析透明度。"""
+    style = {**_STYLE, "bg_enabled": True, "bg_color": "#00000080", "bg_padding_ratio": 0.35}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    bg = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,") and "\\p1" in l)
+    assert "\\1c&H000000&\\1a&H7F&" in bg
 
 
 def test_build_ass_bg_disabled_by_default():

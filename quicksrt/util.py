@@ -1,10 +1,11 @@
-"""通用工具：日志、子进程、ffprobe、meta 状态管理。"""
+"""通用工具：日志、子进程、ffprobe、meta 状态管理、颜色解析。"""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -12,6 +13,73 @@ from pathlib import Path
 from typing import Any
 
 META_FILE = "meta.json"
+
+# ---------- 颜色解析（CSS 风格 -> ASS &HAABBGGRR） ----------
+
+_RGB_RE = re.compile(r"rgb\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)", re.I)
+_RGBA_RE = re.compile(
+    r"rgba\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)", re.I
+)
+_HEX_RE = re.compile(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
+_HEX_DIGITS = frozenset("0123456789ABCDEF")
+
+
+def _clamp255(v: Any) -> int:
+    return max(0, min(255, int(round(float(v)))))
+
+
+def _alpha_byte(v: Any) -> int:
+    """CSS 透明度 0.0-1.0（1=不透明）-> ASS alpha 0-255（ASS 反转：00=不透明，FF=全透明）。"""
+    return max(0, min(255, int(round((1.0 - float(v)) * 255))))
+
+
+def _to_ass(r: int, g: int, b: int, a: int) -> str:
+    return f"&H{a:02X}{b:02X}{g:02X}{r:02X}"
+
+
+def parse_ass_color(value: Any) -> str:
+    """CSS 风格颜色配置 -> ASS &HAABBGGRR，统一入口。
+
+    支持：
+    - rgba(r, g, b, a)：r/g/b 为 0-255，a 为 0.0-1.0（越界自动钳制）
+    - rgb(r, g, b)：等价 rgba(..., 1.0)
+    - #RGB / #RRGGBB / #RRGGBBAA（8 位时末两位为透明度）
+    兼容旧 ASS 格式 &HAABBGGRR（原样保留，统一大写）。
+    """
+    v = str(value).strip()
+    if not v:
+        raise ValueError("颜色不能为空")
+    if v.lower().startswith("&h"):
+        hexpart = v[2:].upper()
+        if len(hexpart) == 6:  # 兼容无 alpha 的简写：AA 视为 00
+            hexpart = "00" + hexpart
+        if len(hexpart) != 8 or not all(c in _HEX_DIGITS for c in hexpart):
+            raise ValueError(f"非法 ASS 颜色: {value!r}")
+        return "&H" + hexpart
+    m = _HEX_RE.fullmatch(v)
+    if m:
+        h = m.group(1)
+        if len(h) == 3:
+            r, g, b = (int(c * 2, 16) for c in h)
+            a = 0  # 未指定透明度 = 完全不透明（ASS alpha 00）
+        elif len(h) == 6:
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            a = 0
+        else:
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            a = 255 - int(h[6:8], 16)  # CSS #RRGGBBAA 的 alpha 字节反转成 ASS alpha
+        return _to_ass(r, g, b, a)
+    m = _RGBA_RE.fullmatch(v)
+    if m:
+        r, g, b = (_clamp255(x) for x in m.group(1, 2, 3))
+        return _to_ass(r, g, b, _alpha_byte(m.group(4)))
+    m = _RGB_RE.fullmatch(v)
+    if m:
+        r, g, b = (_clamp255(x) for x in m.group(1, 2, 3))
+        return _to_ass(r, g, b, 0)  # rgb 无透明度 = 不透明（ASS alpha 00）
+    raise ValueError(
+        f"无法解析颜色: {value!r}（支持 rgb()/rgba()/#HEX，如 #FFFFFF、rgba(0,0,0,0.5)）"
+    )
 
 
 class _ColoredFormatter(logging.Formatter):

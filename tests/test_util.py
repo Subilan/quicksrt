@@ -1,4 +1,4 @@
-"""util：时间戳格式化、meta 状态、workdir 查找。"""
+"""util：时间戳格式化、meta 状态、workdir 查找、颜色解析。"""
 
 import json
 from types import SimpleNamespace
@@ -12,6 +12,7 @@ from quicksrt.util import (
     fmt_ts,
     font_available,
     load_meta,
+    parse_ass_color,
     save_meta,
     step_done,
 )
@@ -38,6 +39,58 @@ def test_step_done():
     assert not step_done(meta, "b")
     assert not step_done(meta, "a", key=2)
     assert step_done(meta, "a", key=1)
+
+
+# ---------- 颜色解析（CSS -> ASS &HAABBGGRR） ----------
+
+
+@pytest.mark.parametrize(
+    ("css", "ass"),
+    [
+        ("#FFFFFF", "&H00FFFFFF"),
+        ("#ffffff", "&H00FFFFFF"),
+        ("#000000", "&H00000000"),
+        ("#FF0000", "&H000000FF"),          # 红：BBGGRR
+        ("#2196F3", "&H00F39621"),          # 蓝（BGR 反序）
+        ("#FFF", "&H00FFFFFF"),            # 3 位简写
+        ("#f00", "&H000000FF"),
+        ("#00000080", "&H7F000000"),      # 半透明黑（与 rgba(0,0,0,0.5) 同语义）
+        ("#000000FF", "&H00000000"),      # 完全不透明
+        ("#FFFFFF00", "&HFFFFFFFF"),      # 全透明白
+        ("rgb(255, 255, 255)", "&H00FFFFFF"),
+        ("rgb(255,0,0)", "&H000000FF"),
+        ("rgb(0, 255, 0)", "&H0000FF00"),
+        ("rgb(33, 150, 243)", "&H00F39621"),
+        ("rgba(0, 0, 0, 0.5)", "&H80000000"),
+        ("rgba(255, 255, 255, 1)", "&H00FFFFFF"),
+        ("rgba(255, 255, 255, 1.0)", "&H00FFFFFF"),
+        ("rgba(0,0,0,0)", "&HFF000000"),
+        ("rgba(0, 0, 0, 0.2)", "&HCC000000"),  # (1-0.2)*255=204=0xCC
+        ("RGBA(0, 0, 0, 0.5)", "&H80000000"),  # 大小写不敏感
+    ],
+)
+def test_parse_ass_color_css(css, ass):
+    assert parse_ass_color(css) == ass
+
+
+def test_parse_ass_color_legacy_asses_through():
+    """旧 ASS 格式 &HAABBGGRR 原样保留（统一大写）。"""
+    assert parse_ass_color("&H00FFFFFF") == "&H00FFFFFF"
+    assert parse_ass_color("&h80ff0000") == "&H80FF0000"
+    assert parse_ass_color("&HFFFFFF") == "&H00FFFFFF"  # 6 位简写：alpha 视为 00
+
+
+def test_parse_ass_color_clamps():
+    """越界值自动钳制（r/g/b 0-255，a 0.0-1.0）。"""
+    assert parse_ass_color("rgb(300, -10, 128)") == "&H008000FF"
+    assert parse_ass_color("rgba(0, 0, 0, 1.5)") == "&H00000000"
+    assert parse_ass_color("rgba(0, 0, 0, -0.2)") == "&HFF000000"
+
+
+def test_parse_ass_color_invalid():
+    for bad in ("", "   ", "blue", "#12", "#12345", "rgb(1, 2)", "rgba(1,2,3)", "#GGG", "&HZZ"):
+        with pytest.raises(ValueError):
+            parse_ass_color(bad)
     assert not step_done({}, "a")
 
 
