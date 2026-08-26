@@ -56,6 +56,43 @@ def test_split_zh_inner_split_fallback():
     assert "".join(out) == "这是完全没有标点的超长句子内容没有任何逗号"
 
 
+def test_split_zh_space_not_split_by_default():
+    # 默认空格不是分句分隔符：分句仅发生在标点处，空格保留在句中
+    out = split_zh("第一句，第二句 第三句", 8)
+    assert out == ["第一句，", "第二句 第三句"]
+
+
+def test_split_zh_space_split():
+    text = "第一句 第二句 第三句"
+    out = split_zh(text, 4, split_on_space=True)
+    assert out == ["第一句 ", "第二句 ", "第三句"]
+
+
+def test_split_zh_space_split_fullwidth():
+    # 全角空格同样作为分句分隔符
+    out = split_zh("第一句\u3000第二句", 4, split_on_space=True)
+    assert out == ["第一句\u3000", "第二句"]
+
+
+def test_split_zh_space_split_short():
+    # 未超过 max_chars 不拆，与分句标点行为一致
+    out = split_zh("第一句 第二句", 42, split_on_space=True)
+    assert out == ["第一句 第二句"]
+
+
+def test_split_zh_space_merge():
+    # 空格分段后按 max_chars 贪心合并
+    out = split_zh("一二 三四 五六 七八", 7, split_on_space=True)
+    assert all(len(p) <= 7 for p in out)
+    assert "".join(out) == "一二 三四 五六 七八"
+
+
+def test_split_zh_space_with_punct():
+    # 空格与分句标点混合时同样按 max_chars 贪心合并
+    out = split_zh("第一句，第二句 第三句", 8, split_on_space=True)
+    assert out == ["第一句，第二句 ", "第三句"]
+
+
 def test_inner_split_english_space():
     out = _inner_split("hello world this is a very long english sentence", 15)
     assert all(len(p) <= 15 for p in out)

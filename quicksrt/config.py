@@ -72,6 +72,8 @@ strip_end_punct = true
 # 拆句优化：单条字幕文本最大长度（字符），超过则在分句标点（，、；）处拆成多条；
 # 拆出的条目时间按字符数比例从原句时间中分配
 max_chars = 42
+# 是否把空格（半角/全角）也作为中文分句分隔符；不设或 false 则仅在分句标点处拆句
+split_on_space = false
 
 [style]
 # 中文主字体（可填变体全名精确指定字重/斜体，如 "IBM Plex Sans SemiBold" / "IBM Plex Sans Italic"）

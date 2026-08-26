@@ -21,6 +21,7 @@ from ..models import load_segments
 STEP = "refine"
 
 _SPLIT_PUNCT = "，、；"
+_SPACE_CHARS = " \u3000"
 
 
 def strip_end_punct(text: str) -> str:
@@ -54,15 +55,18 @@ def _inner_split(text: str, max_chars: int) -> list[str]:
     return lines
 
 
-def split_zh(text: str, max_chars: int) -> list[str]:
-    """在分句标点处拆句，贪心合并到不超过 max_chars。"""
+def split_zh(text: str, max_chars: int, split_on_space: bool = False) -> list[str]:
+    """在分句标点处拆句，贪心合并到不超过 max_chars。
+
+    split_on_space=True 时，空格（半角/全角）也作为分句分隔符。
+    """
     if len(text) <= max_chars:
         return [text]
     pieces: list[str] = []
     buf = ""
     for ch in text:
         buf += ch
-        if ch in _SPLIT_PUNCT:
+        if ch in _SPLIT_PUNCT or (split_on_space and ch in _SPACE_CHARS):
             pieces.append(buf)
             buf = ""
     if buf:
@@ -153,7 +157,8 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> Path:
     max_chars = int(rcfg.get("max_chars", 42))
     min_gap = float(rcfg.get("min_gap", 0.35))
     strip = bool(rcfg.get("strip_end_punct", True))
-    cfg_key = {"max_chars": max_chars, "min_gap": min_gap, "strip_end_punct": strip}
+    split_on_space = bool(rcfg.get("split_on_space", False))
+    cfg_key = {"max_chars": max_chars, "min_gap": min_gap, "strip_end_punct": strip, "split_on_space": split_on_space}
 
     if not force and util.step_done(meta, STEP, refine=cfg_key) and out_path.exists():
         log.info("[refine] 已完成，跳过")
@@ -169,7 +174,7 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> Path:
     for e, z in zip(en_segs, zh_segs):
         zt = z.text.strip()
         et = e.text.strip()
-        zh_parts = split_zh(zt, max_chars)
+        zh_parts = split_zh(zt, max_chars, split_on_space=split_on_space)
         # 去标点要在拆句之后再做一次：拆出的分句末尾可能暴露新的逗号/句号
         if strip:
             zh_parts = [strip_end_punct(p) for p in zh_parts]
