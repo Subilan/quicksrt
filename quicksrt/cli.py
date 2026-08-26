@@ -8,13 +8,14 @@
   quicksrt translate        DeepSeek 翻译为简体中文
   quicksrt srt              生成 SRT 字幕
   quicksrt burn             烧录字幕（libass，不重编码音频）
-  quicksrt preview          纯色背景渲染单条字幕 PNG 预览（字幕样式预览；--text-only 输出紧贴文字的裁剪图）
+  quicksrt preview          纯色背景渲染单条字幕 PNG 预览（字幕样式预览；--crop 输出紧贴文字的裁剪图；--example 用内置示例文本，不依赖已有数据；--preset a,b / --all-preset 批量样式预览）
   quicksrt all <url>        全链路执行
 """
 
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import typer
@@ -216,31 +217,58 @@ def all(
 def preview(
     video_id: str | None = typer.Option(None, "--video-id", "-i"),
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
-    res: str = typer.Option("auto", "--res", help="输出分辨率: auto/720p/1080p/4k（auto 取源视频分辨率）"),
+    res: str = typer.Option("auto", "--res", help="输出分辨率: auto/720p/1080p/4k（auto 取源视频分辨率；--example 模式无源视频，auto 回退 1080p）"),
     index: int = typer.Option(1, "--index", help="渲染第几条字幕（从 1 开始，默认 1）"),
-    background: str | None = typer.Option(None, "--background", help="预览背景色（覆盖 [preview] background，ffmpeg color 支持的值，如 white/#202020；text-only 时作为截取背景色，不指定则沿用 [preview] background 默认值）"),
-    preset: str | None = typer.Option(None, "--preset", help="样式预设名（覆盖 config.toml [style] 的 preset，仅本次预览生效）"),
-    inline: bool = typer.Option(False, "--inline-image", help="在 iTerm2 终端内直接展示预览图"),
-    text_only: bool = typer.Option(False, "--text-only", help="只渲染文字本身（输出紧贴文字范围的 PNG，无背景帧）；此时 --res/--video-id/--background 无效"),
+    background: str | None = typer.Option(None, "--background", help="预览背景色（覆盖 [preview] background，ffmpeg color 支持的值，如 white/#202020；crop 时作为截取背景色，不指定则沿用 [preview] background 默认值）"),
+    preset: str | None = typer.Option(None, "--preset", help="样式预设名（逗号分隔多个，如 plex,plex_yellow；覆盖 config.toml [style] 的 preset，仅本次预览生效）"),
+    all_preset: bool = typer.Option(False, "--all-preset", help="批量渲染 presets.toml 中所有样式预设的效果；与 --preset 互斥"),
+    inline: bool = typer.Option(False, "--inline-image", help="在 iTerm2 终端内直接展示预览图（多预设时并排对比）"),
+    crop: bool = typer.Option(False, "--crop", help="只渲染文字本身（输出紧贴文字范围的 PNG，无背景帧）；此时 --res/--video-id/--background 无效"),
+    example: str | None = typer.Option(None, "--example", metavar="lorem|glass|fox", help="用内置固定示例文本预览（lorem/glass/fox，默认 lorem），不依赖已有 work 数据；与 --video-id 互斥"),
 ):
-    """渲染单条字幕 PNG 预览（语言模式取 [style] 配置；--preset 临时切换样式预设；--text-only 输出紧贴文字的裁剪图）"""
+    """渲染单条字幕 PNG 预览（语言模式取 [style] 配置；--preset 逗号分隔多个或 --all-preset 批量样式预览；--crop 输出紧贴文字的裁剪图；--example 用固定示例文本直接预览，不依赖已有数据）"""
     cfg = _cfg(config)
-    if text_only:
+    if example is not None:
+        if example not in preview_step.EXAMPLES:
+            raise typer.BadParameter(f"未知示例: {example}（可选: {', '.join(preview_step.EXAMPLES)}）")
         if video_id is not None:
-            typer.echo("警告: --text-only 模式下 --video-id 无效，改用最新 work 目录", err=True)
-        if res != "auto":
-            typer.echo("警告: --text-only 模式下 --res 无效，忽略", err=True)
-        video_id, res = None, "auto"
-        # --background 在 text-only 下仍生效（截取背景色，不指定则用 [preview] background）
-    workdir = _workdir(cfg, video_id)
+            typer.echo("警告: --example 模式下 --video-id 无效，忽略", err=True)
+            video_id = None
+        if res == "auto":
+            res = "1080p"  # 示例模式无源视频可探测，回退 1080p
+        workdir = None
+    else:
+        if crop:
+            if video_id is not None:
+                typer.echo("警告: --crop 模式下 --video-id 无效，改用最新 work 目录", err=True)
+            if res != "auto":
+                typer.echo("警告: --crop 模式下 --res 无效，忽略", err=True)
+            video_id, res = None, "auto"
+            # --background 在 crop 下仍生效（截取背景色，不指定则用 [preview] background）
+        workdir = _workdir(cfg, video_id)
+    try:
+        presets = preview_step.resolve_presets(cfg, preset, all_preset)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
     log = util.setup_logging(workdir)
-    out = preview_step.run(cfg, workdir, log, res=res, index=index, background=background, text_only=text_only, preset=preset)
+    if presets is None:
+        outputs = [(None, preview_step.run(cfg, workdir, log, res=res, index=index, background=background, crop=crop, example=example))]
+    else:
+        outputs = [
+            (p, preview_step.run(cfg, workdir, log, res=res, index=index, background=background, crop=crop, preset=p, example=example))
+            for p in presets
+        ]
     if inline:
         if os.environ.get("TERM_PROGRAM") != "iTerm.app":
             typer.echo("警告: 当前终端不是 iTerm2，内联图片可能无法显示", err=True)
-        typer.echo(preview_step.inline_image_escape(out))
-        typer.echo()
-    typer.echo(f"preview 完成: {out}")
+        # 每张图独占一行（100% 宽度）；多预设时预设名单独一行，图片在下一行
+        for name, out in outputs:
+            if name:
+                typer.echo(f"[{name}]")
+            typer.echo(preview_step.inline_image_escape(out))
+            typer.echo()
+    for _, out in outputs:
+        typer.echo(f"preview 完成: {out}")
 
 
 @app.command()
@@ -291,5 +319,36 @@ def _reset_step(workdir: Path, step: str) -> None:
         util.save_meta(workdir, meta)
 
 
+def _normalize_example_argv(argv: list[str]) -> list[str]:
+    """把 preview 子命令的裸 --example 规范化为 --example lorem（默认示例）。
+
+    typer/click 的选项要么必须带值、要么是纯 flag，无法表达"可选值选项"
+    （--example 可带可不带值），故在解析前做一次规范化：仅当子命令为 preview
+    且 --example 后没有值时补默认值 lorem。--example glass / --example=glass 原样保留。
+    """
+    try:
+        sub_idx = next(i for i, a in enumerate(argv) if not a.startswith("-"))
+    except StopIteration:
+        return argv
+    if argv[sub_idx] != "preview":
+        return argv
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if i > sub_idx and a == "--example" and (i + 1 >= len(argv) or argv[i + 1].startswith("-")):
+            out.extend(["--example", "lorem"])
+        else:
+            out.append(a)
+        i += 1
+    return out
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI 入口：规范化 --example 可选值参数后启动（typer 不支持可选值选项）。"""
+    args = list(sys.argv[1:] if argv is None else argv)
+    app(args=_normalize_example_argv(args))
+
+
 if __name__ == "__main__":
-    app()
+    main()

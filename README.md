@@ -44,7 +44,10 @@ uv run quicksrt burn
 uv run quicksrt preview --res 1080p   # 纯色背景渲染单条字幕 PNG 预览（样式预览，默认第 1 条，--index 指定）
 uv run quicksrt preview --res 1080p --background white  # 覆盖背景色（或 #202020 等 ffmpeg 颜色值）
 uv run quicksrt preview --inline-image  # 同上，并在 iTerm2 终端内直接展示图片
-uv run quicksrt preview --text-only    # 只渲染文字本身：输出紧贴文字范围的 PNG（--res/--video-id/--background 无效）
+uv run quicksrt preview --crop         # 只渲染文字本身：输出紧贴文字范围的 PNG（--res/--video-id/--background 无效）
+uv run quicksrt preview --example lorem # 用内置示例文本预览（lorem/glass/fox，默认 lorem），不依赖已有 work 数据
+uv run quicksrt preview --preset plex,plex_yellow  # 逗号分隔渲染多个样式预设
+uv run quicksrt preview --all-preset --inline-image  # 批量渲染 presets.toml 全部预设（与 --preset 互斥），终端内逐个展示
 uv run quicksrt status                   # 查看流水线状态
 uv run quicksrt clean -y                 # 删除中间产物
 ```

@@ -49,7 +49,7 @@ quicksrt/
 | `refined.json` | refine | 双语条目：`[{id, src_id, start, end, zh, en}]`，拆句/标点/接缝已处理；`zh`/`en` 中可含 `\n` 表示行内换行。**srt（双语）与 burn/preview 的实际数据源** |
 | `subs.srt` | srt | 规范化 SRT（refined.json 存在时输出双语：中文在上、英文在下） |
 | `subs.ass` | burn | 按样式配置生成的 ASS（中间产物，调试用） |
-| `preview.ass` / `preview_text.ass` | preview | 预览用的临时 ASS |
+| `preview.ass` / `preview_crop.ass` | preview | 预览用的临时 ASS |
 | `.oss_upload/` | upload | OSS 分片上传断点（重传时跳过已上传分片） |
 | `quicksrt.log` | 各环节 | 环节日志文件（终端输出同时落盘）。extract 及之后的环节写 `work/<id>/quicksrt.log`；download / all 的日志写在 `work/quicksrt.log`（此时视频目录尚未创建） |
 
@@ -88,8 +88,9 @@ CLI `--force` 把对应环节的 `steps` 重置为 `null` 强制重跑；`all --
 | 文件 | 产出命令 | 说明 |
 | --- | --- | --- |
 | `<标题>.mp4` | burn | 烧录完成视频（标题清洗：非法字符替换为 `_`，截断 80 字符） |
-| `<标题>_preview_<分辨率>.png` | preview | 普通预览：纯色背景 + 单条字幕，分辨率 = 指定值或源视频（如 `<标题>_preview_1080p.png`、`_preview_1920x1080.png`） |
-| `<标题>_preview_text.png` | preview --text-only | 文字裁剪图：紧贴文字包围盒、保留纯色背景的 PNG |
+| `<标题>_preview_<分辨率>.png` | preview | 普通预览：纯色背景 + 单条字幕，分辨率 = 指定值或源视频（如 `<标题>_preview_1080p.png`）；多预设（--preset a,b / --all-preset）时为 `<标题>_preview_<预设>_<分辨率>.png` |
+| `<标题>_preview_crop.png` | preview --crop | 文字裁剪图：紧贴文字包围盒、保留纯色背景的 PNG（多预设时为 `<标题>_preview_<预设>_crop.png`） |
+| `example-<示例>_preview_<分辨率>.png` | preview --example | 内置示例文本预览（lorem/glass/fox，默认 lorem；不依赖 work 数据，auto 回退 1080p） |
 
 ## 中间产物生命周期
 
