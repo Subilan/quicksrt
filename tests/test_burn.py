@@ -91,12 +91,12 @@ def test_style_mode_invalid_falls_back():
 
 def test_lang_style():
     style = {
-        "zh_font_name": "F1", "zh_fake_bold": True, "zh_fake_italic": False,
-        "en_font_name": "F2", "en_fake_bold": False, "en_fake_italic": True,
+        "zh_font_name": "F1", "zh_bold": True, "zh_italic": False,
+        "en_font_name": "F2", "en_bold": False, "en_italic": True,
     }
     assert _lang_style(style, "zh") == ("F1", True, False)
     assert _lang_style(style, "en") == ("F2", False, True)
-    assert _lang_style({}, "en")[0] == "Noto Sans CJK SC"  # en 字体缺省回退主字体
+    assert _lang_style({}, "en")[0] == "sans-serif"  # en 字体缺省回退主字体
 
 
 # ---------- 字体缺失校验与默认字体回退 ----------
@@ -116,7 +116,7 @@ def test_ensure_font_missing_falls_back(caplog, monkeypatch):
 
     monkeypatch.setattr(util, "font_available", lambda name: name != "GhostFont")
     with caplog.at_level("WARNING", logger="quicksrt"):
-        assert _ensure_font("GhostFont", "primary(zh)") == "Noto Sans CJK SC"
+        assert _ensure_font("GhostFont", "primary(zh)") == "sans-serif"
     assert len(caplog.records) == 1
     assert "GhostFont" in caplog.text and "回退到默认字体" in caplog.text
 
@@ -138,7 +138,7 @@ def test_build_ass_items_font_missing_warns(caplog, monkeypatch):
     style = {**_STYLE, "zh_font_name": "ZH-Font"}
     with caplog.at_level("WARNING", logger="quicksrt"):
         ass = build_ass_items(_ITEMS, style, _PROBE)
-    assert "Style: Default,Noto Sans CJK SC,54," in ass
+    assert "Style: Default,sans-serif,54," in ass
     assert "ZH-Font" in caplog.text and "回退到默认字体" in caplog.text
 
 
@@ -151,9 +151,9 @@ def test_lang_shear():
 
 def test_lang_style_shear_disables_italic_flag():
     """设置 italic_shear 时用 \\fax 剪切，Italic 标志关闭（避免双重倾斜）。"""
-    style = {"zh_font_name": "F", "zh_fake_italic": True, "zh_italic_shear": 0.2}
+    style = {"zh_font_name": "F", "zh_italic": True, "zh_italic_shear": 0.2}
     assert _lang_style(style, "zh") == ("F", False, False)
-    style_en = {"en_font_name": "F2", "en_fake_italic": True, "en_italic_shear": "-0.1"}
+    style_en = {"en_font_name": "F2", "en_italic": True, "en_italic_shear": "-0.1"}
     assert _lang_style(style_en, "en") == ("F2", False, False)
 
 
@@ -220,7 +220,7 @@ def test_build_ass_mono_en():
 
 
 def test_build_ass_bold_italic():
-    style = {**_STYLE, "zh_fake_bold": True, "zh_fake_italic": False, "en_fake_bold": False, "en_fake_italic": True}
+    style = {**_STYLE, "zh_bold": True, "zh_italic": False, "en_bold": False, "en_italic": True}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0" in ass
     assert "Style: Secondary,EN-Font,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,1,0,0" in ass

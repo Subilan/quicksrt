@@ -76,8 +76,8 @@ max_chars = 42
 split_on_space = false
 
 [style]
-# 中文主字体（可填变体全名精确指定字重/斜体，如 "IBM Plex Sans SemiBold" / "IBM Plex Sans Italic"）
-zh_font_name = "Noto Sans CJK SC"
+# 中文主字体（默认 sans-serif：fontconfig 通用家族名，不依赖系统安装的特定字体；可填变体全名精确指定字重/斜体，如 "IBM Plex Sans SemiBold" / "IBM Plex Sans Italic"）
+zh_font_name = "sans-serif"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
 # 中文主色（ASS AABBGGRR）
@@ -90,15 +90,15 @@ mode = "bilingual"
 # 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
 primary_lang = "zh"
 # 中文假粗体/假斜体（不依赖字体变体；精确字重/斜体直接填 zh_font_name 变体全名）
-zh_fake_bold = false
-zh_fake_italic = false
+zh_bold = false
+zh_italic = false
 # 中文假斜体倾角（libass \\fax 剪切值，正数向右倾、负数向左；留空用 libass 默认假斜体，设置后自动关闭 Italic 标志）
 zh_italic_shear = ""
 # 英文独立字体与样式（英文做主/副语言均生效，字号跟随主/副位置）
-en_font_name = "Noto Sans CJK SC"
+en_font_name = "sans-serif"
 en_font_ratio = 0.6
-en_fake_bold = false
-en_fake_italic = false
+en_bold = false
+en_italic = false
 en_italic_shear = ""
 # 英文独立颜色（ASS AABBGGRR）；留空时英文跟随 zh_color
 en_color = ""

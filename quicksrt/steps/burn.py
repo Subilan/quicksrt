@@ -7,7 +7,7 @@ CRF 质量模式 + 慢速 preset，尽量降低二次编码损失。
 语言模式（[style] 配置）：
 - mode: bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
 - primary_lang: zh | en（主语言，大字号在上）
-中文样式用 zh_font_name/zh_fake_bold/zh_fake_italic/zh_italic_shear，英文用 en_font_name/en_fake_bold/en_fake_italic/en_italic_shear；
+中文样式用 zh_font_name/zh_bold/zh_italic/zh_italic_shear，英文用 en_font_name/en_bold/en_italic/en_italic_shear；
 字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体。
 """
 
@@ -57,7 +57,7 @@ def _style_block(
     name: str = "Default", font_name: str | None = None, bold: bool = False, italic: bool = False,
     color: str | None = None,
 ) -> str:
-    font = font_name or cfg_style.get("zh_font_name", "Noto Sans CJK SC")
+    font = font_name or cfg_style.get("zh_font_name", "sans-serif")
     color = color or cfg_style.get("zh_color", "&H00FFFFFF")
     return (
         f"Style: {name},{font},{fontsize},{color},&H000000FF,"
@@ -142,25 +142,25 @@ def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
     """某语言的字体系列、粗体、斜体标志。
 
     字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体；
-    zh_fake_bold/zh_fake_italic 为假粗体/假斜体（不依赖字体变体）；
+    zh_bold/zh_italic 为假粗体/假斜体（不依赖字体变体）；
     zh_italic_shear 设置时用 \\fax 剪切自定义倾角（此时 Italic 标志关，避免双重倾斜）。
     """
     if lang == "en":
-        font = cfg_style.get("en_font_name") or cfg_style.get("zh_font_name", "Noto Sans CJK SC")
-        bold = bool(cfg_style.get("en_fake_bold", False))
-        italic = bool(cfg_style.get("en_fake_italic", False))
+        font = cfg_style.get("en_font_name") or cfg_style.get("zh_font_name", "sans-serif")
+        bold = bool(cfg_style.get("en_bold", False))
+        italic = bool(cfg_style.get("en_italic", False))
         if _lang_shear(cfg_style, "en") is not None:
             italic = False
         return font, bold, italic
-    font = cfg_style.get("zh_font_name", "Noto Sans CJK SC")
-    bold = bool(cfg_style.get("zh_fake_bold", False))
-    italic = bool(cfg_style.get("zh_fake_italic", False))
+    font = cfg_style.get("zh_font_name", "sans-serif")
+    bold = bool(cfg_style.get("zh_bold", False))
+    italic = bool(cfg_style.get("zh_italic", False))
     if _lang_shear(cfg_style, "zh") is not None:
         italic = False
     return font, bold, italic
 
 
-_DEFAULT_FONT = "Noto Sans CJK SC"
+_DEFAULT_FONT = "sans-serif"  # fontconfig 通用家族名，任何系统均可解析并回退到系统默认中文字体
 
 
 def _ensure_font(font: str, ctx: str) -> str:

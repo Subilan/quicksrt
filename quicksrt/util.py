@@ -88,13 +88,20 @@ def run_cmd(cmd: list[str], log: logging.Logger, timeout: int | None = None) -> 
     return proc
 
 
+# fontconfig 通用家族名：fc-list 不解析它们，但 libass/fontconfig 总能解析，视为始终可用
+_GENERIC_FAMILIES = {"sans-serif", "serif", "monospace"}
+
+
 def font_available(name: str) -> bool:
     """fontconfig 检查字体是否可用（fc-list 有匹配输出即存在）。
 
-    fc-list 不可用（如无 fontconfig 的环境）时返回 True，避免误报。
+    通用家族名（sans-serif/serif/monospace）视为可用；fc-list 不可用
+    （如无 fontconfig 的环境）时返回 True，避免误报。
     """
     if not name:
         return False
+    if name.strip().lower() in _GENERIC_FAMILIES:
+        return True
     try:
         proc = subprocess.run(
             ["fc-list", name], capture_output=True, text=True, timeout=10

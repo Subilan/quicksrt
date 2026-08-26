@@ -81,6 +81,9 @@ def test_save_meta_creates_dir(tmp_path):
 def test_font_available_real():
     assert font_available("Noto Sans CJK SC") is True      # 本机已安装
     assert font_available("definitely-not-a-font-xyz") is False
+    # fontconfig 通用家族名不依赖具体安装，始终视为可用
+    assert font_available("sans-serif") is True
+    assert font_available("Sans-Serif") is True
 
 
 def test_font_available_no_fclist(monkeypatch):
