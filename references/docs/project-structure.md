@@ -5,7 +5,7 @@
 ```
 quicksrt/
 ├── README.md              用户手册（面向用户）
-├── docs/                  技术文档（本目录）
+├── references/docs/      技术文档（本目录）；references/ 下另有外部参考资料
 ├── config.toml            业务配置（从 config.toml.example 复制，勿提交 git）
 ├── config.toml.example    配置示例
 ├── presets.toml           样式预设库

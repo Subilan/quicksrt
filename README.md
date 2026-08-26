@@ -57,8 +57,8 @@ uv run quicksrt clean -y                 # 删除中间产物
 
 ## 文档
 
-技术细节见 `docs/`：
+技术细节见 `references/docs/`：
 
-- [开发指南（测试/代码结构/提交规范）](docs/development.md)
-- [产物结构（work/ 与 dist/ 每个文件说明）](docs/project-structure.md)
-- [配置文件详解（config.toml 全部字段 / presets.toml / .env）](docs/configuration.md)
+- [开发指南（测试/代码结构/提交规范）](references/docs/development.md)
+- [产物结构（work/ 与 dist/ 每个文件说明）](references/docs/project-structure.md)
+- [配置文件详解（config.toml 全部字段 / presets.toml / .env）](references/docs/configuration.md)
