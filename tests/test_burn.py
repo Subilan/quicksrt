@@ -45,7 +45,7 @@ def test_ass_escape(text, expect):
 
 def test_style_block():
     style = {
-        "font_name": "F", "font_size_ratio": 0.05,
+        "zh_font_name": "F", "font_size_ratio": 0.05,
         "zh_color": "&H00FFFFFF", "outline_color": "&H00000000",
         "outline": 2, "shadow": 1,
     }
@@ -55,7 +55,7 @@ def test_style_block():
 
 
 def test_style_block_bold_italic_custom_font():
-    style = {"font_name": "F", "outline": 2, "shadow": 1}
+    style = {"zh_font_name": "F", "outline": 2, "shadow": 1}
     s = _style_block(1920, 1080, style, 54, 40, 20, "Secondary", "EN", True, True)
     assert s.startswith("Style: Secondary,EN,54,")
     assert ",1,1,0,0,100,100" in s
@@ -82,7 +82,7 @@ def test_style_mode_invalid_falls_back():
 
 def test_lang_style():
     style = {
-        "font_name": "F1", "faux_bold": True, "faux_italic": False,
+        "zh_font_name": "F1", "zh_faux_bold": True, "zh_faux_italic": False,
         "en_font_name": "F2", "en_faux_bold": False, "en_faux_italic": True,
     }
     assert _lang_style(style, "zh") == ("F1", True, False)
@@ -92,14 +92,14 @@ def test_lang_style():
 
 def test_lang_shear():
     assert _lang_shear({}, "zh") is None
-    assert _lang_shear({"italic_shear": ""}, "zh") is None
-    assert _lang_shear({"italic_shear": 0.2}, "zh") == 0.2
+    assert _lang_shear({"zh_italic_shear": ""}, "zh") is None
+    assert _lang_shear({"zh_italic_shear": 0.2}, "zh") == 0.2
     assert _lang_shear({"en_italic_shear": "-0.15"}, "en") == "-0.15"
 
 
 def test_lang_style_shear_disables_italic_flag():
     """设置 italic_shear 时用 \\fax 剪切，Italic 标志关闭（避免双重倾斜）。"""
-    style = {"font_name": "F", "faux_italic": True, "italic_shear": 0.2}
+    style = {"zh_font_name": "F", "zh_faux_italic": True, "zh_italic_shear": 0.2}
     assert _lang_style(style, "zh") == ("F", False, False)
     style_en = {"en_font_name": "F2", "en_faux_italic": True, "en_italic_shear": "-0.1"}
     assert _lang_style(style_en, "en") == ("F2", False, False)
@@ -118,7 +118,7 @@ def test_lang_color():
 # ---------- build_ass_items ----------
 
 _STYLE = {
-    "font_name": "ZH-Font", "font_size_ratio": 0.05, "margin_v_ratio": 0.05,
+    "zh_font_name": "ZH-Font", "font_size_ratio": 0.05, "margin_v_ratio": 0.05,
     "zh_color": "&H00FFFFFF", "outline_color": "&H00000000",
     "outline": 2, "shadow": 1,
     "en_font_name": "EN-Font", "en_font_ratio": 0.6,
@@ -168,7 +168,7 @@ def test_build_ass_mono_en():
 
 
 def test_build_ass_bold_italic():
-    style = {**_STYLE, "faux_bold": True, "faux_italic": False, "en_faux_bold": False, "en_faux_italic": True}
+    style = {**_STYLE, "zh_faux_bold": True, "zh_faux_italic": False, "en_faux_bold": False, "en_faux_italic": True}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0" in ass
     assert "Style: Secondary,EN-Font,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,1,0,0" in ass
@@ -176,7 +176,7 @@ def test_build_ass_bold_italic():
 
 def test_build_ass_italic_shear():
     """italic_shear 自定义倾角：Italic 标志关，文本加 {\\fax} 剪切。"""
-    style = {**_STYLE, "italic_shear": 0.2, "en_italic_shear": "-0.15"}
+    style = {**_STYLE, "zh_italic_shear": 0.2, "en_italic_shear": "-0.15"}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0" in ass
     assert "Style: Secondary,EN-Font,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0" in ass

@@ -95,7 +95,7 @@ def test_run_builds_ass_and_calls_ffmpeg(tmp_path, monkeypatch):
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):
@@ -235,7 +235,7 @@ def test_run_text_only(tmp_path, monkeypatch):
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):
@@ -287,7 +287,7 @@ def test_run_text_only_with_background(tmp_path, monkeypatch):
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):

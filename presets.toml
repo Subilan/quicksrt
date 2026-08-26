@@ -1,6 +1,6 @@
 [default]
 # 中文字体与整体字号/边距
-font_name = "微软雅黑"
+zh_font_name = "微软雅黑"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
 zh_color = "&H00FFFFFF"
@@ -11,9 +11,9 @@ shadow = 1
 mode = "bilingual"
 # 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
 primary_lang = "zh"
-# 中文样式：假粗体/假斜体（不依赖字体变体；精确字重/斜体请在 font_name 填变体全名）
-faux_bold = false
-faux_italic = false
+# 中文假粗体/假斜体（不依赖字体变体；精确字重/斜体请填 zh_font_name 变体全名）
+zh_faux_bold = false
+zh_faux_italic = false
 # 英文独立字体与样式（英文做主/副语言均生效，字号跟随主/副位置）
 en_font_name = "微软雅黑"
 en_font_ratio = 0.6
@@ -27,7 +27,7 @@ bg_padding_ratio = 0.35
 
 [plex]
 # 中文字体与整体字号/边距
-font_name = "IBM Plex Sans SC"
+zh_font_name = "IBM Plex Sans SC"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
 zh_color = "&H00FFFFFF"
@@ -38,9 +38,9 @@ shadow = 1
 mode = "bilingual"
 # 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
 primary_lang = "zh"
-# 中文样式：假粗体（字体无真粗体变体时的合成加粗）
-faux_bold = true
-faux_italic = false
+# 中文假粗体（字体无真粗体变体时的合成加粗）
+zh_faux_bold = true
+zh_faux_italic = false
 # 英文独立字体与样式：直接填斜体变体全名，精确使用真斜体
 en_font_name = "IBM Plex Sans Italic"
 en_font_ratio = 0.6

@@ -7,8 +7,8 @@ CRF 质量模式 + 慢速 preset，尽量降低二次编码损失。
 语言模式（[style] 配置）：
 - mode: bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
 - primary_lang: zh | en（主语言，大字号在上）
-中文样式用 font_name/faux_bold/faux_italic/italic_shear，英文用 en_font_name/en_faux_bold/en_faux_italic/en_italic_shear；
-font_name 可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体。
+中文样式用 zh_font_name/zh_faux_bold/zh_faux_italic/zh_italic_shear，英文用 en_font_name/en_faux_bold/en_faux_italic/en_italic_shear；
+字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体。
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def _style_block(
     name: str = "Default", font_name: str | None = None, bold: bool = False, italic: bool = False,
     color: str | None = None,
 ) -> str:
-    font = font_name or cfg_style.get("font_name", "Noto Sans CJK SC")
+    font = font_name or cfg_style.get("zh_font_name", "Noto Sans CJK SC")
     color = color or cfg_style.get("zh_color", "&H00FFFFFF")
     return (
         f"Style: {name},{font},{fontsize},{color},&H000000FF,"
@@ -133,7 +133,7 @@ def _lang_color(cfg_style: dict, lang: str) -> str:
 
 def _lang_shear(cfg_style: dict, lang: str) -> str | None:
     """某语言的假斜体倾角（libass \\fax 剪切值）；未设置/留空返回 None。"""
-    key = "en_italic_shear" if lang == "en" else "italic_shear"
+    key = "en_italic_shear" if lang == "en" else "zh_italic_shear"
     v = cfg_style.get(key)
     return v if v not in (None, "") else None
 
@@ -141,20 +141,20 @@ def _lang_shear(cfg_style: dict, lang: str) -> str | None:
 def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
     """某语言的字体系列、粗体、斜体标志。
 
-    font_name 可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体；
-    faux_bold/faux_italic 为假粗体/假斜体（不依赖字体变体）；
-    italic_shear 设置时用 \\fax 剪切自定义倾角（此时 Italic 标志关，避免双重倾斜）。
+    字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体；
+    zh_faux_bold/zh_faux_italic 为假粗体/假斜体（不依赖字体变体）；
+    zh_italic_shear 设置时用 \\fax 剪切自定义倾角（此时 Italic 标志关，避免双重倾斜）。
     """
     if lang == "en":
-        font = cfg_style.get("en_font_name") or cfg_style.get("font_name", "Noto Sans CJK SC")
+        font = cfg_style.get("en_font_name") or cfg_style.get("zh_font_name", "Noto Sans CJK SC")
         bold = bool(cfg_style.get("en_faux_bold", False))
         italic = bool(cfg_style.get("en_faux_italic", False))
         if _lang_shear(cfg_style, "en") is not None:
             italic = False
         return font, bold, italic
-    font = cfg_style.get("font_name", "Noto Sans CJK SC")
-    bold = bool(cfg_style.get("faux_bold", False))
-    italic = bool(cfg_style.get("faux_italic", False))
+    font = cfg_style.get("zh_font_name", "Noto Sans CJK SC")
+    bold = bool(cfg_style.get("zh_faux_bold", False))
+    italic = bool(cfg_style.get("zh_faux_italic", False))
     if _lang_shear(cfg_style, "zh") is not None:
         italic = False
     return font, bold, italic
@@ -232,7 +232,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{cfg_style.get('font_name', 'Noto Sans CJK SC')},{fontsize},{cfg_style.get('zh_color', '&H00FFFFFF')},&H000000FF,{cfg_style.get('outline_color', '&H00000000')},&H80000000,0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},2,{margin_h},{margin_h},{margin_v},1
+Style: Default,{cfg_style.get('zh_font_name', 'Noto Sans CJK SC')},{fontsize},{cfg_style.get('zh_color', '&H00FFFFFF')},&H000000FF,{cfg_style.get('outline_color', '&H00000000')},&H80000000,0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},2,{margin_h},{margin_h},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
