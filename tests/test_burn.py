@@ -90,16 +90,6 @@ def test_lang_style():
     assert _lang_style({}, "en")[0] == "Noto Sans CJK SC"  # en 字体缺省回退主字体
 
 
-def test_lang_style_old_faux_keys_compat():
-    """旧键名 *_faux_* 兼容回退（新键优先）。"""
-    style = {"zh_faux_bold": True, "en_faux_italic": True}
-    assert _lang_style(style, "zh") == ("Noto Sans CJK SC", True, False)
-    assert _lang_style(style, "en") == ("Noto Sans CJK SC", False, True)
-    # 新旧并存时新键优先
-    style2 = {"zh_faux_bold": True, "zh_fake_bold": False}
-    assert _lang_style(style2, "zh")[1] is False
-
-
 def test_lang_shear():
     assert _lang_shear({}, "zh") is None
     assert _lang_shear({"zh_italic_shear": ""}, "zh") is None

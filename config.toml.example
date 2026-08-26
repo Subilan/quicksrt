@@ -79,7 +79,7 @@ shadow = 1
 mode = "bilingual"
 # 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
 primary_lang = "zh"
-# 中文假粗体/假斜体（不依赖字体变体；精确字重/斜体直接填 zh_font_name 变体全名；旧键名 zh_faux_* 兼容）
+# 中文假粗体/假斜体（不依赖字体变体；精确字重/斜体直接填 zh_font_name 变体全名）
 zh_fake_bold = false
 zh_fake_italic = false
 # 中文假斜体倾角（libass \fax 剪切值，正数向右倾、负数向左；留空用 libass 默认假斜体）

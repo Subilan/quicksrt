@@ -133,43 +133,6 @@ def test_style_config_cli_preset_missing_raises():
         cfg.style_config(preset="nope")
 
 
-# ---------- 旧键名 *_faux_* 兼容迁移 ----------
-
-
-def test_style_config_faux_migrated():
-    """显式旧键名 *_faux_* 迁移为 *_fake_*，结果不含旧键。"""
-    cfg = Config({"style": {"zh_faux_bold": True, "en_faux_italic": True}}, None)
-    style = cfg.style_config()
-    assert style["zh_fake_bold"] is True
-    assert style["en_fake_italic"] is True
-    assert "zh_faux_bold" not in style and "en_faux_italic" not in style
-
-
-def test_style_config_faux_preset_migrated():
-    """预设里的旧键名同样迁移。"""
-    presets = {"old": {"zh_faux_bold": True, "en_faux_bold": True}}
-    cfg = Config({"style": {"preset": "old"}}, None, presets)
-    style = cfg.style_config()
-    assert style["zh_fake_bold"] is True
-    assert style["en_fake_bold"] is True
-
-
-def test_style_config_fake_overrides_faux():
-    """新旧键名并存时新键优先。"""
-    cfg = Config({"style": {"zh_faux_bold": True, "zh_fake_bold": False}}, None)
-    assert cfg.style_config()["zh_fake_bold"] is False
-
-
-def test_style_config_faux_default_false(monkeypatch, tmp_path):
-    """未设置时新键默认 false，不含旧键。"""
-    monkeypatch.chdir(tmp_path)
-    style = load_config().style_config()
-    assert style["zh_fake_bold"] is False
-    assert style["zh_fake_italic"] is False
-    assert style["en_fake_bold"] is False
-    assert style["en_fake_italic"] is False
-
-
 def test_load_config_reads_presets(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
