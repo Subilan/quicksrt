@@ -8,6 +8,7 @@ from quicksrt.steps.burn import (
     _bg_color_parts,
     _bg_dialogue,
     _lang_color,
+    _lang_shear,
     _lang_style,
     _style_block,
     _style_mode,
@@ -81,12 +82,27 @@ def test_style_mode_invalid_falls_back():
 
 def test_lang_style():
     style = {
-        "font_name": "F1", "font_bold": True, "font_italic": False,
-        "en_font_name": "F2", "en_bold": False, "en_italic": True,
+        "font_name": "F1", "faux_bold": True, "faux_italic": False,
+        "en_font_name": "F2", "en_faux_bold": False, "en_faux_italic": True,
     }
     assert _lang_style(style, "zh") == ("F1", True, False)
     assert _lang_style(style, "en") == ("F2", False, True)
     assert _lang_style({}, "en")[0] == "Noto Sans CJK SC"  # en 字体缺省回退主字体
+
+
+def test_lang_shear():
+    assert _lang_shear({}, "zh") is None
+    assert _lang_shear({"italic_shear": ""}, "zh") is None
+    assert _lang_shear({"italic_shear": 0.2}, "zh") == 0.2
+    assert _lang_shear({"en_italic_shear": "-0.15"}, "en") == "-0.15"
+
+
+def test_lang_style_shear_disables_italic_flag():
+    """设置 italic_shear 时用 \\fax 剪切，Italic 标志关闭（避免双重倾斜）。"""
+    style = {"font_name": "F", "faux_italic": True, "italic_shear": 0.2}
+    assert _lang_style(style, "zh") == ("F", False, False)
+    style_en = {"en_font_name": "F2", "en_faux_italic": True, "en_italic_shear": "-0.1"}
+    assert _lang_style(style_en, "en") == ("F2", False, False)
 
 
 def test_lang_color():
@@ -152,10 +168,19 @@ def test_build_ass_mono_en():
 
 
 def test_build_ass_bold_italic():
-    style = {**_STYLE, "font_bold": True, "font_italic": False, "en_bold": False, "en_italic": True}
+    style = {**_STYLE, "faux_bold": True, "faux_italic": False, "en_faux_bold": False, "en_faux_italic": True}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0" in ass
     assert "Style: Secondary,EN-Font,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,1,0,0" in ass
+
+
+def test_build_ass_italic_shear():
+    """italic_shear 自定义倾角：Italic 标志关，文本加 {\\fax} 剪切。"""
+    style = {**_STYLE, "italic_shear": 0.2, "en_italic_shear": "-0.15"}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0" in ass
+    assert "Style: Secondary,EN-Font,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0" in ass
+    assert "{\\fax0.2}你好\\N{\\rSecondary}{\\fax-0.15}hello" in ass
 
 
 # ---------- 字幕背景（全宽半透明矩形条） ----------

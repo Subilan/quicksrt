@@ -73,11 +73,11 @@ def test_load_dotenv(monkeypatch, tmp_path):
 _PRESETS = {
     "default": {
         "font_name": "Noto Sans CJK SC", "font_size_ratio": 0.05,
-        "mode": "bilingual", "primary_lang": "zh", "font_bold": False,
+        "mode": "bilingual", "primary_lang": "zh", "faux_bold": False,
     },
     "bold_en": {
         "font_name": "Arial", "primary_lang": "en",
-        "en_font_name": "Arial", "en_bold": True, "en_italic": True,
+        "en_font_name": "Arial", "en_faux_bold": True, "en_faux_italic": True,
     },
 }
 
@@ -98,7 +98,8 @@ def test_style_config_preset_overridden_by_style():
     cfg = Config({"style": {"preset": "bold_en", "font_size_ratio": 0.09}}, None, _PRESETS)
     style = cfg.style_config()
     assert style["primary_lang"] == "en"          # 预设展开
-    assert style["en_bold"] is True               # 预设展开
+    assert style["en_faux_bold"] is True             # 预设展开
+    assert style["en_faux_italic"] is True           # 预设展开
     assert style["font_size_ratio"] == 0.09       # [style] 显式键覆盖
 
 
@@ -113,7 +114,7 @@ def test_style_config_cli_preset_overrides():
     cfg = Config({"style": {"preset": "default", "font_size_ratio": 0.09}}, None, _PRESETS)
     style = cfg.style_config(preset="bold_en")
     assert style["primary_lang"] == "en"          # 来自 --preset 的 bold_en
-    assert style["en_bold"] is True               # 来自 --preset 的 bold_en
+    assert style["en_faux_bold"] is True               # 来自 --preset 的 bold_en
     assert style["font_size_ratio"] == 0.09        # [style] 显式键仍覆盖
     assert style["preset"] == "bold_en"
 
@@ -150,13 +151,13 @@ def test_style_real_load_preset_no_override(monkeypatch, tmp_path):
     """只写 preset 不覆盖：应全用 preset 值，而非内置默认。"""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
-        '[mypreset]\nfont_name = "Serif"\nfont_bold = true\nprimary_lang = "en"\nmode = "mono"\n',
+        '[mypreset]\nfont_name = "Serif"\nfaux_bold = true\nprimary_lang = "en"\nmode = "mono"\n',
         encoding="utf-8",
     )
     (tmp_path / "config.toml").write_text('[style]\npreset = "mypreset"\n', encoding="utf-8")
     s = load_config().style_config()
     assert s["font_name"] == "Serif"       # 来自 preset，而非内置默认 Noto Sans CJK SC
-    assert s["font_bold"] is True           # 来自 preset
+    assert s["faux_bold"] is True           # 来自 preset
     assert s["primary_lang"] == "en"       # 来自 preset
     assert s["mode"] == "mono"             # 来自 preset
     assert s["outline"] == 2                # preset 未定义的键补内置默认
@@ -166,14 +167,14 @@ def test_style_real_load_preset_partial_override(monkeypatch, tmp_path):
     """preset + 选择性覆盖：未写字段用 preset 值，显式键覆盖 preset。"""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
-        '[mypreset]\nfont_name = "Serif"\nfont_bold = true\nprimary_lang = "en"\n',
+        '[mypreset]\nfont_name = "Serif"\nfaux_bold = true\nprimary_lang = "en"\n',
         encoding="utf-8",
     )
     (tmp_path / "config.toml").write_text(
-        '[style]\npreset = "mypreset"\nfont_bold = false\n', encoding="utf-8"
+        '[style]\npreset = "mypreset"\nfaux_bold = false\n', encoding="utf-8"
     )
     s = load_config().style_config()
-    assert s["font_bold"] is False          # 显式覆盖
+    assert s["faux_bold"] is False          # 显式覆盖
     assert s["font_name"] == "Serif"       # 未写字段用 preset
     assert s["primary_lang"] == "en"
 

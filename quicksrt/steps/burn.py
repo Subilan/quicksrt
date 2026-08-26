@@ -7,7 +7,8 @@ CRF 质量模式 + 慢速 preset，尽量降低二次编码损失。
 语言模式（[style] 配置）：
 - mode: bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
 - primary_lang: zh | en（主语言，大字号在上）
-中文样式用 font_name/font_bold/font_italic，英文用 en_font_name/en_bold/en_italic。
+中文样式用 font_name/faux_bold/faux_italic/italic_shear，英文用 en_font_name/en_faux_bold/en_faux_italic/en_italic_shear；
+font_name 可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体。
 """
 
 from __future__ import annotations
@@ -130,19 +131,33 @@ def _lang_color(cfg_style: dict, lang: str) -> str:
     return cfg_style.get("zh_color", "&H00FFFFFF")
 
 
+def _lang_shear(cfg_style: dict, lang: str) -> str | None:
+    """某语言的假斜体倾角（libass \\fax 剪切值）；未设置/留空返回 None。"""
+    key = "en_italic_shear" if lang == "en" else "italic_shear"
+    v = cfg_style.get(key)
+    return v if v not in (None, "") else None
+
+
 def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
-    """某语言的字体系列、粗体、斜体（en 用 en_* 配置，zh 用主配置）。"""
+    """某语言的字体系列、粗体、斜体标志。
+
+    font_name 可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体；
+    faux_bold/faux_italic 为假粗体/假斜体（不依赖字体变体）；
+    italic_shear 设置时用 \\fax 剪切自定义倾角（此时 Italic 标志关，避免双重倾斜）。
+    """
     if lang == "en":
-        return (
-            cfg_style.get("en_font_name") or cfg_style.get("font_name", "Noto Sans CJK SC"),
-            bool(cfg_style.get("en_bold", False)),
-            bool(cfg_style.get("en_italic", False)),
-        )
-    return (
-        cfg_style.get("font_name", "Noto Sans CJK SC"),
-        bool(cfg_style.get("font_bold", False)),
-        bool(cfg_style.get("font_italic", False)),
-    )
+        font = cfg_style.get("en_font_name") or cfg_style.get("font_name", "Noto Sans CJK SC")
+        bold = bool(cfg_style.get("en_faux_bold", False))
+        italic = bool(cfg_style.get("en_faux_italic", False))
+        if _lang_shear(cfg_style, "en") is not None:
+            italic = False
+        return font, bold, italic
+    font = cfg_style.get("font_name", "Noto Sans CJK SC")
+    bold = bool(cfg_style.get("faux_bold", False))
+    italic = bool(cfg_style.get("faux_italic", False))
+    if _lang_shear(cfg_style, "zh") is not None:
+        italic = False
+    return font, bold, italic
 
 
 def build_ass_items(items: list[dict], cfg_style: dict, probe: dict,
@@ -163,6 +178,8 @@ def build_ass_items(items: list[dict], cfg_style: dict, probe: dict,
     s_font, s_bold, s_italic = _lang_style(cfg_style, secondary_lang)
     p_color = _lang_color(cfg_style, primary_lang)
     s_color = _lang_color(cfg_style, secondary_lang)
+    p_shear = _lang_shear(cfg_style, primary_lang)
+    s_shear = _lang_shear(cfg_style, secondary_lang)
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -182,8 +199,12 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
     lines = [header]
     for it in items:
         primary = _ass_escape(it[primary_lang]).replace("\n", "\\N")
+        if p_shear is not None:
+            primary = f"{{\\fax{p_shear}}}{primary}"
         if mode == "bilingual":
             secondary = _ass_escape(it[secondary_lang]).replace("\n", "\\N")
+            if s_shear is not None:
+                secondary = f"{{\\fax{s_shear}}}{secondary}"
             text = f"{primary}\\N{{\\rSecondary}}{secondary}"
         else:
             text = primary

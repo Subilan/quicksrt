@@ -86,14 +86,18 @@ shadow = 1
 mode = "bilingual"
 # 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
 primary_lang = "zh"
-# 中文样式（粗体/斜体）
-font_bold = false
-font_italic = false
+# 中文样式：假粗体/假斜体（不依赖字体变体；如需精确字重/斜体，直接在 font_name 填变体全名，
+# 如 "IBM Plex Sans SemiBold" / "IBM Plex Sans Italic"）
+faux_bold = false
+faux_italic = false
+# 假斜体倾角（libass \\fax 剪切值，正数向右倾、负数向左；留空用 libass 默认假斜体，设置后自动关闭 Italic 标志）
+italic_shear = ""
 # 英文独立字体与样式（英文做主/副语言均生效，字号跟随主/副位置）
 en_font_name = "Noto Sans CJK SC"
 en_font_ratio = 0.6
-en_bold = false
-en_italic = false
+en_faux_bold = false
+en_faux_italic = false
+en_italic_shear = ""
 # 英文独立颜色（ASS AABBGGRR）；留空时英文跟随 zh_color
 en_color = ""
 # 字幕背景：全宽半透明矩形条（分层渲染：背景 Dialogue + 文本 Dialogue）
