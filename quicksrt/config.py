@@ -6,7 +6,7 @@
 样式预设：presets.toml 每段一个命名预设（段名 = 预设名），字段与 [style] 一致；
 [style] 中写 preset = "预设名" 引用，预设为基底、[style] 显式键覆盖，
 不写 preset 则只用 [style]（内置默认）。
-预设之间支持相互继承：预设内写 preset = "父预设名"，以父预设为基底、自身键覆盖，
+预设之间支持相互继承：预设内写 extends = "父预设名"，以父预设为基底、自身键覆盖，
 支持链式继承（A 继承 B 继承 C），循环继承与引用不存在的预设会报错。
 """
 
@@ -157,10 +157,10 @@ class Config:
         return self.raw.get(name, {})
 
     def _expand_preset(self, name: str, stack: tuple[str, ...] = ()) -> dict:
-        """递归展开 presets.toml 预设：preset 键引用父预设为基底、自身键覆盖。
+        """递归展开 presets.toml 预设：extends 键引用父预设为基底、自身键覆盖。
 
         支持链式继承；循环继承（A -> B -> A）与引用不存在的预设报错。
-        展开结果不含继承控制键（preset），只含纯样式字段。
+        展开结果不含继承控制键（extends），只含纯样式字段。
         """
         raw = self.presets.get(name)
         if raw is None:
@@ -169,7 +169,7 @@ class Config:
         if name in stack:
             raise RuntimeError(f"样式预设循环继承: {' -> '.join((*stack, name))}")
         own = dict(raw)
-        parent = own.pop("preset", None)
+        parent = own.pop("extends", None)
         if parent:
             base = self._expand_preset(parent, (*stack, name))
             return {**base, **own}

@@ -65,7 +65,7 @@ max_chars = 42
 split_on_space = false
 
 [style]
-# 样式预设（见 presets.toml）：预设为基底，本段显式字段覆盖预设；预设间也可相互继承（预设内写 preset = "父预设名"，支持链式）；不写则只用本段
+# 样式预设（见 presets.toml）：预设为基底，本段显式字段覆盖预设；预设间也可相互继承（预设内写 extends = "父预设名"，支持链式）；不写则只用本段
 preset = "default"
 # libass 烧录样式（ASS 风格）
 # 中文主字体（默认 sans-serif：fontconfig 通用家族名，不依赖系统安装的特定字体；可填变体全名精确指定字重/斜体，如 "IBM Plex Sans SemiBold" / "IBM Plex Sans Italic"）

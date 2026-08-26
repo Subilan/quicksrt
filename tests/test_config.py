@@ -137,16 +137,16 @@ def test_style_config_cli_preset_missing_raises():
 
 _INHERIT_PRESETS = {
     "base": {"zh_font_name": "Serif", "font_size_ratio": 0.05, "mode": "mono", "zh_bold": True},
-    "child": {"preset": "base", "zh_bold": False, "primary_lang": "en"},
-    "grandchild": {"preset": "child", "en_font_name": "Arial"},
-    "orphan": {"preset": "nope"},
-    "loop_a": {"preset": "loop_b"},
-    "loop_b": {"preset": "loop_a"},
+    "child": {"extends": "base", "zh_bold": False, "primary_lang": "en"},
+    "grandchild": {"extends": "child", "en_font_name": "Arial"},
+    "orphan": {"extends": "nope"},
+    "loop_a": {"extends": "loop_b"},
+    "loop_b": {"extends": "loop_a"},
 }
 
 
 def test_preset_inherit_no_override():
-    """子预设只写 preset 引用：全用父预设值（无覆盖）。"""
+    """子预设只写 extends 引用：全用父预设值（无覆盖）。"""
     cfg = Config({"style": {"preset": "child"}}, None, _INHERIT_PRESETS)
     s = cfg.style_config()
     assert s["zh_font_name"] == "Serif"
@@ -191,7 +191,7 @@ def test_preset_inherit_cycle_raises():
 
 
 def test_preset_inherit_full_override():
-    """全量覆盖：不写 preset 即独立预设，与既有行为一致。"""
+    """全量覆盖：不写 extends 即独立预设，与既有行为一致。"""
     cfg = Config({"style": {"preset": "base"}}, None, _INHERIT_PRESETS)
     s = cfg.style_config()
     assert s["zh_font_name"] == "Serif"
@@ -214,7 +214,7 @@ def test_style_real_load_preset_inherit(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
         '[base]\nzh_font_name = "Serif"\nzh_bold = true\nmode = "mono"\n'
-        '[plex]\npreset = "base"\nzh_bold = false\nprimary_lang = "en"\n',
+        '[plex]\nextends = "base"\nzh_bold = false\nprimary_lang = "en"\n',
         encoding="utf-8",
     )
     (tmp_path / "config.toml").write_text('[style]\npreset = "plex"\n', encoding="utf-8")
@@ -231,8 +231,8 @@ def test_style_real_load_preset_inherit_chain(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
         '[base]\nzh_font_name = "Serif"\nmode = "mono"\n'
-        '[mid]\npreset = "base"\nzh_color = "#112233"\n'
-        '[top]\npreset = "mid"\nzh_color = "#445566"\n',
+        '[mid]\nextends = "base"\nzh_color = "#112233"\n'
+        '[top]\nextends = "mid"\nzh_color = "#445566"\n',
         encoding="utf-8",
     )
     (tmp_path / "config.toml").write_text(
@@ -245,12 +245,13 @@ def test_style_real_load_preset_inherit_chain(monkeypatch, tmp_path):
 
 
 def test_preset_inherit_expand_result_clean():
-    """展开结果不含继承控制键：preset 只来自 [style]/CLI 引用，不残留父级引用。"""
+    """展开结果不含继承控制键：preset 只来自 [style]/CLI 引用，不残留 extends。"""
     cfg = Config({"style": {"preset": "child"}}, None, _INHERIT_PRESETS)
     s = cfg.style_config()
     assert s.get("preset") == "child"      # 顶层引用键
     base = cfg._expand_preset("child")
     assert "preset" not in base              # 内部展开无控制键
+    assert "extends" not in base             # 继承控制键不残留
 
 
 def test_load_config_reads_presets(monkeypatch, tmp_path):
