@@ -4,22 +4,66 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 META_FILE = "meta.json"
 
 
-def setup_logging(workdir: Path | None = None, verbose: bool = False) -> logging.Logger:
+class _ColoredFormatter(logging.Formatter):
+    """终端日志着色（按 level 给 levelname 上色）；format 后恢复原 levelname，避免污染文件日志。"""
+
+    COLORS = {
+        logging.DEBUG: "\x1b[90m",       # 灰
+        logging.INFO: "\x1b[32m",        # 绿
+        logging.WARNING: "\x1b[33m",     # 黄
+        logging.ERROR: "\x1b[31m",       # 红
+        logging.CRITICAL: "\x1b[41m",    # 红底
+    }
+    RESET = "\x1b[0m"
+
+    def format(self, record: logging.LogRecord) -> str:
+        color = self.COLORS.get(record.levelno)
+        if color is None:
+            return super().format(record)
+        levelname = record.levelname
+        record.levelname = f"{color}{levelname}{self.RESET}"
+        try:
+            return super().format(record)
+        finally:
+            record.levelname = levelname
+
+
+def _color_enabled(color: bool | None) -> bool:
+    """日志颜色决策：显式参数 > QUICKSRT_NO_COLOR/NO_COLOR 环境变量 > 终端检测。"""
+    if color is not None:
+        return color
+    if os.environ.get("QUICKSRT_NO_COLOR") or os.environ.get("NO_COLOR"):
+        return False
+    try:
+        return sys.stderr.isatty()
+    except Exception:
+        return False
+
+
+def setup_logging(workdir: Path | None = None, verbose: bool = False,
+                  color: bool | None = None) -> logging.Logger:
+    """初始化 quicksrt logger；终端输出可着色，文件日志永不着色。
+
+    color: None 自动（终端才上色，尊重 QUICKSRT_NO_COLOR/NO_COLOR），True/False 强制。
+    """
     log = logging.getLogger("quicksrt")
     if log.handlers:
         return log
     log.setLevel(logging.DEBUG if verbose else logging.INFO)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S")
     sh = logging.StreamHandler()
-    sh.setFormatter(fmt)
+    sh.setFormatter(_ColoredFormatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S")
+                    if _color_enabled(color) else fmt)
     log.addHandler(sh)
     if workdir is not None:
         workdir.mkdir(parents=True, exist_ok=True)

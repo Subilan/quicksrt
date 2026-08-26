@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from quicksrt.util import (
+    _ColoredFormatter,
+    _color_enabled,
     find_latest_workdir,
     fmt_ts,
     font_available,
@@ -90,3 +92,37 @@ def test_font_available_no_fclist(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", boom)
     assert font_available("Noto Sans CJK SC") is True
+
+
+def test_color_enabled_precedence(monkeypatch):
+    import logging
+    import sys
+
+    class _TTY:
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(sys, "stderr", _TTY())
+    monkeypatch.delenv("QUICKSRT_NO_COLOR", raising=False)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    assert _color_enabled(None) is True        # tty 时自动开
+    assert _color_enabled(False) is False      # 显式参数优先
+    assert _color_enabled(True) is True
+    monkeypatch.setenv("QUICKSRT_NO_COLOR", "1")
+    assert _color_enabled(None) is False       # 环境变量关闭
+    monkeypatch.delenv("QUICKSRT_NO_COLOR")
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert _color_enabled(None) is False       # 标准 NO_COLOR 同样生效
+    assert _color_enabled(True) is True        # 但显式 True 仍可强制
+
+
+def test_colored_formatter_restores_levelname(caplog):
+    import logging
+
+    fmt = _ColoredFormatter("%(levelname)s %(message)s")
+    record = logging.LogRecord("quicksrt", logging.WARNING, __file__, 1, "boom", None, None)
+    out = fmt.format(record)
+    assert "\x1b[33m" in out and "\x1b[0m" in out
+    assert record.levelname == "WARNING"       # 恢复，不污染文件日志
+    record2 = logging.LogRecord("quicksrt", logging.INFO, __file__, 1, "hi", None, None)
+    assert "\x1b[32m" in fmt.format(record2)

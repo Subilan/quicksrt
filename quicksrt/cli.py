@@ -34,6 +34,15 @@ from .steps import upload as upload_step
 app = typer.Typer(help="quicksrt: YouTube 视频下载 -> ASR -> 翻译 -> 烧录中文硬字幕", no_args_is_help=True)
 
 
+@app.callback()
+def _main(
+    no_color: bool = typer.Option(False, "--no-color", help="禁用终端日志颜色"),
+):
+    """全局选项（置于子命令前，如 quicksrt --no-color preview）。"""
+    if no_color:
+        os.environ["QUICKSRT_NO_COLOR"] = "1"
+
+
 def _cfg(config_path: Path) -> Config:
     return load_config(config_path)
 
