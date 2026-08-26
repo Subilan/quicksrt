@@ -6,6 +6,8 @@
 样式预设：presets.toml 每段一个命名预设（段名 = 预设名），字段与 [style] 一致；
 [style] 中写 preset = "预设名" 引用，预设为基底、[style] 显式键覆盖，
 不写 preset 则只用 [style]（内置默认）。
+预设之间支持相互继承：预设内写 preset = "父预设名"，以父预设为基底、自身键覆盖，
+支持链式继承（A 继承 B 继承 C），循环继承与引用不存在的预设会报错。
 """
 
 from __future__ import annotations
@@ -154,10 +156,29 @@ class Config:
     def section(self, name: str) -> dict:
         return self.raw.get(name, {})
 
-    def style_config(self, preset: str | None = None) -> dict:
-        """展开 [style]：preset（presets.toml）为基底，config.toml 显式键覆盖，其余补内置默认。
+    def _expand_preset(self, name: str, stack: tuple[str, ...] = ()) -> dict:
+        """递归展开 presets.toml 预设：preset 键引用父预设为基底、自身键覆盖。
 
-        优先级：config.toml 显式键 > preset > 内置默认。
+        支持链式继承；循环继承（A -> B -> A）与引用不存在的预设报错。
+        展开结果不含继承控制键（preset），只含纯样式字段。
+        """
+        raw = self.presets.get(name)
+        if raw is None:
+            names = ", ".join(sorted(self.presets)) or "无（可创建 presets.toml）"
+            raise RuntimeError(f"样式预设不存在: {name}（可用: {names}）")
+        if name in stack:
+            raise RuntimeError(f"样式预设循环继承: {' -> '.join((*stack, name))}")
+        own = dict(raw)
+        parent = own.pop("preset", None)
+        if parent:
+            base = self._expand_preset(parent, (*stack, name))
+            return {**base, **own}
+        return own
+
+    def style_config(self, preset: str | None = None) -> dict:
+        """展开 [style]：preset（presets.toml，预设间可继承）为基底，config.toml 显式键覆盖，其余补内置默认。
+
+        优先级：config.toml 显式键 > 预设展开 > 内置默认。
         preset 参数非 None 时临时切换预设（如 CLI --preset），仅影响本次调用，不改 config.toml。
         """
         explicit = dict(self.user_style)
@@ -165,11 +186,7 @@ class Config:
             explicit["preset"] = preset
         preset_name = explicit.get("preset")
         if preset_name:
-            base = self.presets.get(preset_name)
-            if base is None:
-                names = ", ".join(sorted(self.presets)) or "无（可创建 presets.toml）"
-                raise RuntimeError(f"样式预设不存在: {preset_name}（可用: {names}）")
-            base = dict(base)
+            base = self._expand_preset(preset_name)
             style = {**base, **explicit}
         else:
             style = explicit

@@ -1,3 +1,9 @@
+# 样式预设：每段一个命名预设（段名 = 预设名），字段与 config.toml 的 [style] 一致。
+# config.toml [style] 中写 preset = "预设名" 引用，预设为基底、[style] 显式键覆盖。
+# 预设之间可相互继承：预设内写 preset = "父预设名"，以父预设为基底、自身键覆盖，
+# 支持链式继承（A 继承 B 继承 C）；循环继承或引用不存在的预设会报错。
+# 三种覆盖形态：无覆盖（只写 preset 引用，全用父值）/ 部分覆盖（继承 + 改部分键）/ 全量覆盖（不写 preset，独立定义）。
+
 [default]
 # 中文字体与整体字号/边距
 zh_font_name = "微软雅黑"
@@ -26,30 +32,11 @@ bg_color = "rgba(0, 0, 0, 0.5)"
 bg_padding_ratio = 0.35
 
 [plex]
-# 中文字体与整体字号/边距
-zh_font_name = "IBMPlexSansSC-Medm"
-font_size_ratio = 0.05
-margin_v_ratio = 0.05
-zh_color = "#FFFFFF"
-outline_color = "#000000"
-outline = 2
-shadow = 1
-# 语言模式：bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
-mode = "bilingual"
-# 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
-primary_lang = "zh"
-# 中文假粗体（字体无真粗体变体时的合成加粗）
-zh_bold = false
-zh_italic = false
+# 继承 default 为基底，只覆盖差异项（无覆盖 = 只写引用；全量覆盖 = 不写 preset 独立定义）
+preset = "default"
+zh_font_name = "IBMPlexSansSC-SmBld"
 # 英文独立字体与样式：直接填斜体变体全名，精确使用真斜体
 en_font_name = "IBM Plex Sans"
-en_font_ratio = 0.6
-en_bold = false
 en_italic = true
 # 英文独立颜色（CSS 颜色：rgb()/rgba()/#HEX）
-en_color = "#2196F3"
-# 字幕背景：全宽半透明矩形条（分层渲染：背景 Dialogue + 文本 Dialogue）
-# bg_color 为 CSS 颜色（如 rgba(0,0,0,0.5) 半透明黑，或 #00000080）；bg_padding_ratio 为内边距相对字号比例
-bg_enabled = false
-bg_color = "rgba(0, 0, 0, 0.5)"
-bg_padding_ratio = 0.35
+en_color = "#88caff"

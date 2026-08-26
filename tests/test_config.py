@@ -133,6 +133,126 @@ def test_style_config_cli_preset_missing_raises():
         cfg.style_config(preset="nope")
 
 
+# ---------- presets.toml 预设间继承 ----------
+
+_INHERIT_PRESETS = {
+    "base": {"zh_font_name": "Serif", "font_size_ratio": 0.05, "mode": "mono", "zh_bold": True},
+    "child": {"preset": "base", "zh_bold": False, "primary_lang": "en"},
+    "grandchild": {"preset": "child", "en_font_name": "Arial"},
+    "orphan": {"preset": "nope"},
+    "loop_a": {"preset": "loop_b"},
+    "loop_b": {"preset": "loop_a"},
+}
+
+
+def test_preset_inherit_no_override():
+    """子预设只写 preset 引用：全用父预设值（无覆盖）。"""
+    cfg = Config({"style": {"preset": "child"}}, None, _INHERIT_PRESETS)
+    s = cfg.style_config()
+    assert s["zh_font_name"] == "Serif"
+    assert s["mode"] == "mono"
+    assert s["zh_bold"] is False          # 子预设显式键
+    assert s["preset"] == "child"        # [style] 引用键保留
+
+
+def test_preset_inherit_partial_override():
+    """子预设继承 + 覆盖部分键：未写字段用父值，显式键覆盖。"""
+    cfg = Config({"style": {"preset": "child"}}, None, _INHERIT_PRESETS)
+    s = cfg.style_config()
+    assert s["zh_bold"] is False           # 子预设显式覆盖
+    assert s["primary_lang"] == "en"     # 子预设新增键
+    assert s["font_size_ratio"] == 0.05    # 未覆盖用父值
+    assert s["mode"] == "mono"           # 未覆盖用父值
+
+
+def test_preset_inherit_chain():
+    """链式继承：grandchild -> child -> base，各层键按覆盖顺序生效。"""
+    cfg = Config({"style": {"preset": "grandchild"}}, None, _INHERIT_PRESETS)
+    s = cfg.style_config()
+    assert s["zh_font_name"] == "Serif"     # 来自 base
+    assert s["zh_bold"] is False            # 来自 child（覆盖 base）
+    assert s["primary_lang"] == "en"      # 来自 child
+    assert s["en_font_name"] == "Arial"   # 来自 grandchild
+    assert s["font_size_ratio"] == 0.05     # 链上定义
+    assert "outline" not in s                # 链上未定义（直接构造无内置默认）
+    assert s["preset"] == "grandchild"      # 顶层引用键
+
+
+def test_preset_inherit_missing_parent_raises():
+    cfg = Config({"style": {"preset": "orphan"}}, None, _INHERIT_PRESETS)
+    with pytest.raises(RuntimeError, match="样式预设不存在: nope"):
+        cfg.style_config()
+
+
+def test_preset_inherit_cycle_raises():
+    cfg = Config({"style": {"preset": "loop_a"}}, None, _INHERIT_PRESETS)
+    with pytest.raises(RuntimeError, match="样式预设循环继承: loop_a -> loop_b -> loop_a"):
+        cfg.style_config()
+
+
+def test_preset_inherit_full_override():
+    """全量覆盖：不写 preset 即独立预设，与既有行为一致。"""
+    cfg = Config({"style": {"preset": "base"}}, None, _INHERIT_PRESETS)
+    s = cfg.style_config()
+    assert s["zh_font_name"] == "Serif"
+    assert s["zh_bold"] is True
+    assert "primary_lang" not in s or s.get("primary_lang") != "en"
+
+
+def test_style_config_cli_preset_with_inheritance():
+    """CLI --preset 指向继承型预设：展开含父级键，[style] 显式键仍覆盖。"""
+    cfg = Config({"style": {"preset": "base", "font_size_ratio": 0.09}}, None, _INHERIT_PRESETS)
+    s = cfg.style_config(preset="child")
+    assert s["preset"] == "child"
+    assert s["zh_font_name"] == "Serif"    # 继承自 base
+    assert s["zh_bold"] is False           # 来自 child
+    assert s["font_size_ratio"] == 0.09     # [style] 显式键仍覆盖
+
+
+def test_style_real_load_preset_inherit(monkeypatch, tmp_path):
+    """真实 load_config 路径：presets.toml 内部继承生效，[style] 引用键保留。"""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "presets.toml").write_text(
+        '[base]\nzh_font_name = "Serif"\nzh_bold = true\nmode = "mono"\n'
+        '[plex]\npreset = "base"\nzh_bold = false\nprimary_lang = "en"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "config.toml").write_text('[style]\npreset = "plex"\n', encoding="utf-8")
+    s = load_config().style_config()
+    assert s["zh_font_name"] == "Serif"   # 继承自 base
+    assert s["zh_bold"] is False          # plex 覆盖
+    assert s["primary_lang"] == "en"    # plex 新增
+    assert s["mode"] == "mono"          # 继承自 base
+    assert s["preset"] == "plex"        # [style] 引用键
+
+
+def test_style_real_load_preset_inherit_chain(monkeypatch, tmp_path):
+    """真实路径链式继承 + [style] 覆盖：三层覆盖顺序正确。"""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "presets.toml").write_text(
+        '[base]\nzh_font_name = "Serif"\nmode = "mono"\n'
+        '[mid]\npreset = "base"\nzh_color = "#112233"\n'
+        '[top]\npreset = "mid"\nzh_color = "#445566"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "config.toml").write_text(
+        '[style]\npreset = "top"\nzh_color = "#AABBCC"\n', encoding="utf-8"
+    )
+    s = load_config().style_config()
+    assert s["zh_font_name"] == "Serif"     # 来自 base
+    assert s["mode"] == "mono"             # 来自 base
+    assert s["zh_color"] == "#AABBCC"     # [style] 显式键最高
+
+
+def test_preset_inherit_expand_result_clean():
+    """展开结果不含继承控制键：preset 只来自 [style]/CLI 引用，不残留父级引用。"""
+    cfg = Config({"style": {"preset": "child"}}, None, _INHERIT_PRESETS)
+    s = cfg.style_config()
+    assert s.get("preset") == "child"      # 顶层引用键
+    base = cfg._expand_preset("child")
+    assert "preset" not in base              # 内部展开无控制键
+
+
 def test_load_config_reads_presets(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
