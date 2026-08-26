@@ -204,6 +204,35 @@ def test_build_ass_items_font_pattern_in_ass():
     assert "Style: Secondary,EN-Font,32," in ass
 
 
+# ---------- 编码器选择 ----------
+
+
+@pytest.mark.parametrize(
+    ("burn_cfg", "cli_encoder", "video_codec", "expect"),
+    [
+        ({}, None, "h264", "libx264"),              # 自动按源编码器
+        ({}, None, "hevc", "libx265"),
+        ({}, None, "av1", "libsvtav1"),
+        ({}, None, "vp9", "libx264"),               # 未知编码器回退 libx264
+        ({"encoder": "libsvtav1"}, None, "h264", "libsvtav1"),   # config 优先于自动
+        ({}, "libx265", "h264", "libx265"),        # CLI 优先于 config
+        ({"encoder": "libsvtav1"}, "libx265", "h264", "libx265"),
+        ({"encoder": "  "}, None, "hevc", "libx265"),           # 空白视为未设置
+    ],
+)
+def test_resolve_encoder(burn_cfg, cli_encoder, video_codec, expect):
+    from quicksrt.steps.burn import _resolve_encoder
+
+    assert _resolve_encoder(burn_cfg, cli_encoder, video_codec) == expect
+
+
+def test_resolve_encoder_invalid():
+    from quicksrt.steps.burn import _resolve_encoder
+
+    with pytest.raises(RuntimeError, match="不支持的编码器"):
+        _resolve_encoder({"encoder": "libx999"}, None, "h264")
+
+
 def test_lang_color():
     style = {"zh_color": "#FFFFFF", "en_color": "rgba(33, 150, 243, 1)"}
     assert _lang_color(style, "zh") == "&H00FFFFFF"

@@ -41,6 +41,14 @@ def _pick_encoder(video_codec: str) -> str:
     return "libx264"
 
 
+def _resolve_encoder(burn_cfg: dict, cli_encoder: str | None, video_codec: str) -> str:
+    """编码器选择优先级：CLI --encoder > config [burn] encoder > 按源编码器自动。"""
+    enc = cli_encoder or (burn_cfg.get("encoder") or "").strip() or _pick_encoder(video_codec)
+    if enc not in ENCODER_DEFAULTS:
+        raise RuntimeError(f"不支持的编码器: {enc}（可选: {', '.join(ENCODER_DEFAULTS)}）")
+    return enc
+
+
 def _ass_ts(seconds: float) -> str:
     cs = max(0, int(round(seconds * 100)))
     h, rem = divmod(cs, 360_000)  # 1 小时 = 360000 厘秒
@@ -349,9 +357,7 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
         ass = build_ass(srt_path, style_cfg, probe)
     ass_path.write_text(ass, encoding="utf-8")
 
-    enc = encoder or _pick_encoder(probe["video_codec"])
-    if enc not in ENCODER_DEFAULTS:
-        raise RuntimeError(f"不支持的编码器: {enc}（可选: {', '.join(ENCODER_DEFAULTS)}）")
+    enc = _resolve_encoder(cfg.section("burn"), encoder, probe["video_codec"])
     defaults = ENCODER_DEFAULTS[enc]
     burn_cfg = cfg.section("burn")
     preset = burn_cfg.get("preset") or defaults["preset"]

@@ -117,6 +117,8 @@ bg_padding_ratio = 0.35
 background = "black"
 
 [burn]
+# 留空则按源编码器自动选择（libx264/libx265/libsvtav1）；CLI --encoder 优先于此
+encoder = ""
 crf = ""
 preset = ""
 """
