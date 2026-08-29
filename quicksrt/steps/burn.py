@@ -348,15 +348,17 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
                 secondary = f"{{\\fax{s_shear}}}{secondary}"
         if shadow.blur > 0:
             # 双层渲染：阴影层（模糊色块，偏移 dx/dy）在文本层之下，正文保持锐利
+            # 注意内联颜色不能用 8 位 &HAABBGGRR（libass 不解析），拆成 \1c 6 位 + \1a alpha
+            sh_color, sh_alpha = _bg_color_parts(shadow.color)
             text_layer = f"{{\\pos({width / 2:.1f},{text_bottom:.1f})}}{primary}"
             shadow_layer = (
                 f"{{\\pos({width / 2 + shadow.dx:.1f},{text_bottom + shadow.dy:.1f})"
-                f"\\bord0\\1c{shadow.color}\\blur{_fmt(shadow.blur)}}}{primary}"
+                f"\\bord0\\1c{sh_color}\\1a{sh_alpha}\\blur{_fmt(shadow.blur)}}}{primary}"
             )
             if mode == "bilingual":
                 text_layer += f"\\N{{\\rSecondary}}{secondary}"
                 shadow_layer += (
-                    f"\\N{{\\rSecondary\\bord0\\1c{shadow.color}\\blur{_fmt(shadow.blur)}}}{secondary}"
+                    f"\\N{{\\rSecondary\\bord0\\1c{sh_color}\\1a{sh_alpha}\\blur{_fmt(shadow.blur)}}}{secondary}"
                 )
             shadow_line = f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{shadow_layer}"
             text_line = f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{text_layer}"
@@ -428,10 +430,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             text = f"{{\\bord{_fmt(bg_pad)}}}{text}"
             lines.append(ts_head + text)
         elif shadow.blur > 0:
+            sh_color, sh_alpha = _bg_color_parts(shadow.color)
             text_layer = f"{{\\pos({width / 2:.1f},{text_bottom:.1f})}}{text}"
             shadow_layer = (
                 f"{{\\pos({width / 2 + shadow.dx:.1f},{text_bottom + shadow.dy:.1f})"
-                f"\\bord0\\1c{shadow.color}\\blur{_fmt(shadow.blur)}}}{text}"
+                f"\\bord0\\1c{sh_color}\\1a{sh_alpha}\\blur{_fmt(shadow.blur)}}}{text}"
             )
             lines.append(ts_head + shadow_layer)
             lines.append(ts_head + text_layer)
