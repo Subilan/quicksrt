@@ -448,7 +448,7 @@ def test_build_ass_two_layer_shadow():
     assert len(dls) == 2
     sh, tx = dls
     # 阴影层：偏移 dx=2/dy=3、关描边、阴影色、模糊
-    assert "{\\pos(962.0,1029.0)\\bord0\\1c&H66000000\\blur2}" in sh
+    assert "{\\pos(962.0,1029.0)\\bord0\\1c&H000000\\1a&H66\\blur2}" in sh
     # 文本层：无偏移 pos，无 blur/bord0 覆盖（正文保持锐利）
     assert "{\\pos(960.0,1026.0)}你好\\N{\\rSecondary}hello" in tx
     assert "\\blur" not in tx and "\\bord0" not in tx
@@ -461,7 +461,7 @@ def test_build_ass_two_layer_bilingual():
     style = {**_STYLE, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     sh = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,") and "\\blur" in l)
-    assert "你好\\N{\\rSecondary\\bord0\\1c&H80000000\\blur2}hello" in sh
+    assert "你好\\N{\\rSecondary\\bord0\\1c&H000000\\1a&H80\\blur2}hello" in sh
 
 
 def test_build_ass_single_layer_xy_diff():
@@ -500,7 +500,7 @@ def test_build_ass_srt_two_layer(tmp_path):
     ass = build_ass(srt, style, _PROBE)
     dls = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
     assert len(dls) == 2
-    assert "{\\pos(962.0,1029.0)\\bord0\\1c&H80000000\\blur2}Hello World" in dls[0]
+    assert "{\\pos(962.0,1029.0)\\bord0\\1c&H000000\\1a&H80\\blur2}Hello World" in dls[0]
     assert "{\\pos(960.0,1026.0)}Hello World" in dls[1]
     assert "Style: Default,ZH-Font,54," in ass
 
