@@ -8,7 +8,7 @@
   quicksrt translate        翻译（[translate] source_lang -> target_lang）
   quicksrt srt              生成 SRT 字幕
   quicksrt burn             烧录字幕（libass，不重编码音频）
-  quicksrt preview          纯色背景渲染单条字幕 PNG 预览（字幕样式预览；--crop 输出紧贴文字的裁剪图；--example 用内置示例文本，不依赖已有数据；--preset a,b / --all-preset 批量样式预览）
+  quicksrt preview          纯色背景渲染单条字幕 PNG 预览（字幕样式预览；--crop 输出紧贴文字的裁剪图；--example 用内置示例文本，--example-primary/--example-secondary 手动构造示例文本，均不依赖已有数据；--preset a,b / --all-preset 批量样式预览）
   quicksrt all <url>        全链路执行
 """
 
@@ -228,18 +228,25 @@ def preview(
     all_preset: bool = typer.Option(False, "--all-preset", help="批量渲染 presets.toml 中所有样式预设的效果；与 --preset 互斥"),
     display: bool = typer.Option(False, "--display", "--inline-image", help="在 iTerm2 终端内直接展示预览图（渲染到临时目录、不产生文件；终端不兼容则直接退出）"),
     crop: bool = typer.Option(False, "--crop", help="只渲染文字本身（输出紧贴文字范围的 PNG，无背景帧）；此时 --res/--video-id/--background 无效"),
-    example: str | None = typer.Option(None, "--example", metavar="lorem|glass|fox", help="用内置固定示例文本预览（lorem/glass/fox，默认 lorem），不依赖已有 work 数据；与 --video-id 互斥"),
+    example: str | None = typer.Option(None, "--example", metavar="lorem|glass|fox", help="用内置固定示例文本预览（lorem/glass/fox，默认 lorem），不依赖已有 work 数据；与 --example-primary/--example-secondary 互斥；与 --video-id 互斥"),
+    example_primary: str | None = typer.Option(None, "--example-primary", help="手动构造示例：主语言文本（可含换行；缺副语言文本时副语言用该文本兜底）；与 --example 互斥"),
+    example_secondary: str | None = typer.Option(None, "--example-secondary", help="手动构造示例：副语言文本（可含换行；缺主语言文本时主语言用该文本兜底）；与 --example 互斥"),
 ):
-    """渲染单条字幕 PNG 预览（语言模式取 [style] 配置；--preset 逗号分隔多个或 --all-preset 批量样式预览；--crop 输出紧贴文字的裁剪图；--example 用固定示例文本直接预览，不依赖已有数据）"""
+    """渲染单条字幕 PNG 预览（语言模式取 [style] 配置；--preset 逗号分隔多个或 --all-preset 批量样式预览；--crop 输出紧贴文字的裁剪图；--example 用固定示例文本直接预览，--example-primary/--example-secondary 手动构造示例文本，均不依赖已有数据）"""
     cfg = _cfg(config)
     # 先初始化基础日志：参数校验阶段的警告也要走标准日志；
     # 文件日志待 workdir 确定后再补充。
     log = util.setup_logging()
-    if example is not None:
-        if example not in preview_step.EXAMPLES:
+    manual = example_primary is not None or example_secondary is not None
+    if example is not None and manual:
+        raise typer.BadParameter("--example 与 --example-primary/--example-secondary 互斥，不能同时使用")
+    if manual and not (example_primary or "").strip() and not (example_secondary or "").strip():
+        raise typer.BadParameter("--example-primary / --example-secondary 至少提供一个非空文本")
+    if example is not None or manual:
+        if example is not None and example not in preview_step.EXAMPLES:
             raise typer.BadParameter(f"未知示例: {example}（可选: {', '.join(preview_step.EXAMPLES)}）")
         if video_id is not None:
-            log.warning("--example 模式下 --video-id 无效，忽略")
+            log.warning("示例模式下 --video-id 无效，忽略")
             video_id = None
         if res == "auto":
             res = "1080p"  # 示例模式无源视频可探测，回退 1080p
@@ -264,12 +271,14 @@ def preview(
         if presets is None:
             return [(None, preview_step.run(
                 cfg, workdir, log, res=res, index=index, background=background,
-                crop=crop, example=example, out_dir=out_dir,
+                crop=crop, example=example, example_primary=example_primary,
+                example_secondary=example_secondary, out_dir=out_dir,
             ))]
         return [
             (p, preview_step.run(
                 cfg, workdir, log, res=res, index=index, background=background,
-                crop=crop, preset=p, example=example, out_dir=out_dir,
+                crop=crop, preset=p, example=example, example_primary=example_primary,
+                example_secondary=example_secondary, out_dir=out_dir,
             ))
             for p in presets
         ]

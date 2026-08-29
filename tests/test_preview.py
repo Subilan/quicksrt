@@ -11,6 +11,7 @@ from quicksrt.steps.preview import (
     EXAMPLES,
     RESOLUTIONS,
     _parse_bbox,
+    build_manual_items,
     inline_image_escape,
     pick_item,
     resolve_presets,
@@ -540,6 +541,95 @@ def test_run_example_preset(tmp_path, monkeypatch):
 def test_run_unknown_example():
     with pytest.raises(RuntimeError, match="未知示例"):
         preview.run(object(), None, _LOG, example="bogus")
+
+
+# ---------- 手动构造示例（--example-primary/--example-secondary） ----------
+
+def test_build_manual_items_primary_only():
+    """只给主语言文本：副语言键用主语言文本兜底。"""
+    items = build_manual_items("你好", None, "zh", "en")
+    assert items == [{"id": 0, "start": 0.0, "end": 1.0, "zh": "你好", "en": "你好"}]
+
+
+def test_build_manual_items_secondary_only():
+    """只给副语言文本：主语言键用副语言文本兜底。"""
+    items = build_manual_items(None, "Hello", "zh", "en")
+    assert items == [{"id": 0, "start": 0.0, "end": 1.0, "zh": "Hello", "en": "Hello"}]
+
+
+def test_build_manual_items_both():
+    """主副都给：各用各的。"""
+    items = build_manual_items("你好", "Hello", "zh", "en")
+    assert items == [{"id": 0, "start": 0.0, "end": 1.0, "zh": "你好", "en": "Hello"}]
+
+
+def test_build_manual_items_blank_falls_back():
+    """空白串视为未提供，由另一方兜底。"""
+    items = build_manual_items("  ", "Hello", "zh", "en")
+    assert items[0]["zh"] == "Hello" and items[0]["en"] == "Hello"
+
+
+def test_build_manual_items_none_rejected():
+    """主副都无有效文本：报错。"""
+    with pytest.raises(RuntimeError, match="至少提供一个非空文本"):
+        build_manual_items(None, "", "zh", "en")
+
+
+class _ManualCfg:
+    """手动示例模式的 FakeCfg：语言码键 zh/en，双语模式。"""
+    def __init__(self, tmp_path):
+        self.output_dir = tmp_path / "dist"
+
+    def primary_lang(self):
+        return "zh"
+
+    def secondary_lang(self):
+        return "en"
+
+    def section(self, name):
+        return {"background": "black"}
+
+    def style_config(self, preset=None):
+        return {"mode": "bilingual", "primary_lang": "zh"}
+
+
+def test_run_manual_example_primary_only(tmp_path, monkeypatch):
+    """--example-primary 单独使用：副语言用主语言文本兜底，双语渲染不报缺字段；文件名带文本片段。"""
+    seen = {}
+    monkeypatch.setattr(preview.util, "run_cmd", lambda cmd, log, timeout=None: None)
+    monkeypatch.setattr(
+        preview.burn, "build_ass_items",
+        lambda items, style_cfg, probe, **kw: seen.update(items=items) or "",
+    )
+
+    out = preview.run(_ManualCfg(tmp_path), None, _LOG, example_primary="你好")
+
+    assert seen["items"][0]["zh"] == "你好"
+    assert seen["items"][0]["en"] == "你好"  # 副语言兜底
+    assert out.name.startswith("example-你好_preview_")
+
+
+def test_run_manual_example_secondary_only(tmp_path, monkeypatch):
+    """--example-secondary 单独使用：主语言用副语言文本兜底。"""
+    seen = {}
+    monkeypatch.setattr(preview.util, "run_cmd", lambda cmd, log, timeout=None: None)
+    monkeypatch.setattr(
+        preview.burn, "build_ass_items",
+        lambda items, style_cfg, probe, **kw: seen.update(items=items) or "",
+    )
+
+    out = preview.run(_ManualCfg(tmp_path), None, _LOG, example_secondary="Hello")
+
+    assert seen["items"][0]["zh"] == "Hello"
+    assert seen["items"][0]["en"] == "Hello"
+    assert out.name.startswith("example-Hello_preview_")
+
+
+def test_run_manual_example_blank_rejected(tmp_path, monkeypatch):
+    """手动示例文本全空白：报错。"""
+    monkeypatch.setattr(preview.util, "run_cmd", lambda cmd, log, timeout=None: None)
+    with pytest.raises(RuntimeError, match="至少提供一个非空文本"):
+        preview.run(_ManualCfg(tmp_path), None, _LOG, example_primary=" ")
 
 
 # ---------- resolve_presets ----------

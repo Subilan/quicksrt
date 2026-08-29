@@ -169,3 +169,43 @@ def test_preview_display_legacy_alias(tmp_path, monkeypatch):
     assert res.exit_code == 0, res.output
     assert len(seen) == 1
     assert res.output.count("[IMG]") == 1
+
+
+def test_preview_manual_example_passthrough(tmp_path, monkeypatch):
+    """--example-primary/--example-secondary：手动构造示例文本，example 为空透传。"""
+    from typer.testing import CliRunner
+    from quicksrt import cli
+
+    seen = _patch_run(monkeypatch, tmp_path)
+    res = CliRunner().invoke(
+        cli.app, ["preview", "--example-primary", "你好", "--example-secondary", "Hello"]
+    )
+    assert res.exit_code == 0, res.output
+    assert seen[0]["example"] is None
+    assert seen[0]["example_primary"] == "你好"
+    assert seen[0]["example_secondary"] == "Hello"
+
+
+def test_preview_manual_example_conflicts_with_example(tmp_path, monkeypatch):
+    """--example 与 --example-primary/--example-secondary 互斥。"""
+    from typer.testing import CliRunner
+    from quicksrt import cli
+
+    _patch_run(monkeypatch, tmp_path)
+    res = CliRunner().invoke(
+        cli.app, ["preview", "--example", "lorem", "--example-primary", "你好"]
+    )
+    assert res.exit_code != 0
+    assert "互斥" in res.output
+
+
+def test_preview_manual_example_blank_rejected(tmp_path, monkeypatch):
+    """手动示例文本全空白：BadParameter，不渲染。"""
+    from typer.testing import CliRunner
+    from quicksrt import cli
+
+    seen = _patch_run(monkeypatch, tmp_path)
+    res = CliRunner().invoke(cli.app, ["preview", "--example-primary", " "])
+    assert res.exit_code != 0
+    assert "至少提供一个非空文本" in res.output
+    assert not seen  # 未渲染

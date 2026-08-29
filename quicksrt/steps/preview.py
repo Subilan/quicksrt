@@ -15,6 +15,10 @@ CLI 加 --display 时生成 iTerm2 内联图片转义序列，终端内直接展
 refined.json 等已有数据、无需 work 目录；裸 --example 默认 lorem。
 lorem 中文用《临江仙·滚滚长江东逝水》上阕（与 lorem ipsum 行宽相当）；glass 对应"我能吞下玻璃而不伤身体"（I can eat glass）；
 fox 对应经典全字母句"quick brown fox"。示例模式无源视频，--res auto 回退 1080p。
+
+--example-primary/--example-secondary：手动构造示例文本（分别挂到 [style] 主/副语言键，
+语言码取当前配置），与 --example 互斥；只提供一方的文本时，另一显示角色用该文本兜底
+（保证双语/单语渲染都有内容）。
 """
 
 from __future__ import annotations
@@ -260,22 +264,59 @@ def _render_frame(cfg, workdir: Path | None, log: logging.Logger, items: list[di
     return output
 
 
-def _run_example(cfg, workdir: Path | None, log: logging.Logger, example: str,
-                 res: str = "auto", index: int = 1, background: str | None = None,
-                 crop: bool = False, preset: str | None = None,
-                 out_dir: Path | None = None) -> Path:
-    """用内置固定示例文本（zh/en 语言码键）渲染预览，不依赖 refined.json 等已有数据。
+def build_manual_items(primary: str | None, secondary: str | None,
+                       primary_lang: str, secondary_lang: str) -> list[dict]:
+    """手动构造示例条目（--example-primary/--example-secondary 的文本）。
 
-    示例模式无源视频，--res auto 回退 1080p；workdir 为 None 时 ASS 临时文件写入
-    output_dir，渲染后清理。out_dir 非 None 时全部临时文件写入该目录（如 --display）。
+    文本分别挂到 primary_lang/secondary_lang 键（语言码取当前 [style] 配置）；
+    只提供一方文本（含传空串）时，另一方用该文本兜底，保证双语渲染的
+    build_ass_items 不会因缺字段报错、mono 模式主语言也有内容。两者都无有效文本报错。
     """
-    text = EXAMPLES.get(example)
-    if text is None:
-        raise RuntimeError(f"未知示例: {example}（可选: {', '.join(EXAMPLES)}）")
+    primary = (primary or "").strip()
+    secondary = (secondary or "").strip()
+    if not primary and not secondary:
+        raise RuntimeError("--example-primary / --example-secondary 至少提供一个非空文本")
+    if not primary:
+        primary = secondary
+    elif not secondary:
+        secondary = primary
+    return [
+        {"id": 0, "start": 0.0, "end": 1.0, primary_lang: primary, secondary_lang: secondary}
+    ]
+
+
+def _run_example(cfg, workdir: Path | None, log: logging.Logger,
+                 example: str | None = None, example_primary: str | None = None,
+                 example_secondary: str | None = None, res: str = "auto",
+                 index: int = 1, background: str | None = None, crop: bool = False,
+                 preset: str | None = None, out_dir: Path | None = None) -> Path:
+    """示例模式渲染预览，不依赖 refined.json 等已有数据。
+
+    example 非 None 用内置固定示例文本（zh/en 语言码键）；否则用
+    example_primary/example_secondary 手动构造（语言码键取 [style] 配置，
+    缺一方时另一方兜底）。示例模式无源视频，--res auto 回退 1080p；
+    workdir 为 None 时 ASS 临时文件写入 output_dir，渲染后清理。
+    out_dir 非 None 时全部临时文件写入该目录（如 --display）。
+    """
+    if example is not None:
+        text = EXAMPLES.get(example)
+        if text is None:
+            raise RuntimeError(f"未知示例: {example}（可选: {', '.join(EXAMPLES)}）")
+        items = [{"id": 0, "start": 0.0, "end": 1.0, **text}]
+        title = f"example-{example}"
+    else:
+        # 手动构造：语言码键取当前 [style] 配置（含预设展开）
+        style_cfg = cfg.style_config(preset=preset)
+        mode, primary_lang, secondary_lang = burn._style_mode(
+            style_cfg, cfg.primary_lang(), cfg.secondary_lang()
+        )
+        items = build_manual_items(example_primary, example_secondary, primary_lang, secondary_lang)
+        # 文件名用文本片段区分不同手动示例（_output_title 会清洗非法字符）
+        snippet = (example_primary or example_secondary or "").strip().splitlines()[0][:24]
+        title = f"example-{snippet or 'manual'}"
     if res == "auto":
         res = "1080p"
-    meta = {"title": f"example-{example}"}
-    items = [{"id": 0, "start": 0.0, "end": 1.0, **text}]
+    meta = {"title": title}
     scratch = out_dir if out_dir is not None else _scratch_dir(cfg, workdir)
     try:
         if crop:
@@ -291,15 +332,19 @@ def _run_example(cfg, workdir: Path | None, log: logging.Logger, example: str,
 
 def run(cfg, workdir: Path | None, log: logging.Logger, res: str = "auto", index: int = 1,
         background: str | None = None, crop: bool = False, preset: str | None = None,
-        example: str | None = None, out_dir: Path | None = None) -> Path:
+        example: str | None = None, example_primary: str | None = None,
+        example_secondary: str | None = None, out_dir: Path | None = None) -> Path:
     """background 为 None 时取 [preview] background（默认 black）；
     crop 时 background 作为截取背景色（未指定则取 [preview] background，默认 black），输出保留该纯色背景；
     preset 非 None 时临时切换样式预设；
     example 非 None 时用内置示例文本预览（不依赖已有数据，workdir 可为 None）；
-    out_dir 非 None 时输出与临时文件写入该目录（如 --display 的临时目录，不产生文件）。"""
-    if example is not None:
-        return _run_example(cfg, workdir, log, example, res=res, index=index,
-                            background=background, crop=crop, preset=preset, out_dir=out_dir)
+    example_primary/example_secondary 非 None 时手动构造示例文本（与 example 互斥，
+    缺一方时另一方兜底）；out_dir 非 None 时输出与临时文件写入该目录（如 --display 的临时目录，不产生文件）。"""
+    if example is not None or example_primary is not None or example_secondary is not None:
+        return _run_example(cfg, workdir, log, example=example,
+                            example_primary=example_primary, example_secondary=example_secondary,
+                            res=res, index=index, background=background, crop=crop,
+                            preset=preset, out_dir=out_dir)
     meta = util.load_meta(workdir)
     refined_path = workdir / "refined.json"
     if not refined_path.exists():

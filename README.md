@@ -56,6 +56,7 @@ uv run quicksrt preview --res 1080p --background white  # 覆盖背景色（或 
 uv run quicksrt preview --display  # 同上，并在 iTerm2 终端内直接展示图片（渲染到临时目录、不产生文件；终端不兼容则直接退出）
 uv run quicksrt preview --crop         # 只渲染文字本身：输出紧贴文字范围的 PNG（--res/--video-id/--background 无效）
 uv run quicksrt preview --example lorem # 用内置示例文本预览（lorem/glass/fox，默认 lorem），不依赖已有 work 数据
+uv run quicksrt preview --example-primary "你好" --example-secondary "Hello"  # 手动构造示例文本（与 --example 互斥；只给一方时另一方用它兜底，语言码键取 [style] 配置）
 uv run quicksrt preview --preset plex,plex_yellow  # 逗号分隔渲染多个样式预设
 uv run quicksrt preview --all-preset --display  # 批量渲染 presets.toml 全部预设（与 --preset 互斥），终端内逐个展示
 uv run quicksrt status                   # 查看流水线状态
