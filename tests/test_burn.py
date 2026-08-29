@@ -8,12 +8,15 @@ from quicksrt.steps.burn import (
     _bg_color_parts,
     _bg_dialogue,
     _ensure_font,
+    _fmt,
     _lang_color,
     _lang_shear,
     _lang_style,
+    _parse_shadow,
     _resolve_font,
     _style_block,
     _style_mode,
+    build_ass,
     build_ass_items,
 )
 
@@ -367,3 +370,144 @@ def test_bg_dialogue_geometry_bilingual():
     # 块高 = 54(主行) + 0.8*32(末行英文) + 2*18.9 = 117.4；块底 = 1080-54-0.167*32+18.9 ≈ 1039.56
     assert "l 1920.00 117.40 l 0 117.40" in bg
     assert "\\pos(960.0,1039.56)" in bg
+
+
+# ---------- 阴影重构（shadow 偏移/模糊/颜色） ----------
+
+
+def test_fmt():
+    assert _fmt(1) == "1"
+    assert _fmt(1.0) == "1"
+    assert _fmt(0) == "0"
+    assert _fmt(2.5) == "2.5"
+
+
+def test_parse_shadow_unset():
+    s = _parse_shadow(None)
+    assert (s.dx, s.dy, s.blur, s.color) == (0, 0, 0, "&H80000000")
+    assert _parse_shadow("").dx == 0
+
+
+def test_parse_shadow_number_legacy():
+    """旧式数字：dx=dy=N、无模糊、默认半透明黑。"""
+    s = _parse_shadow(1)
+    assert (s.dx, s.dy, s.blur) == (1, 1, 0)
+    assert s.color == "&H80000000"  # rgba(0,0,0,0.5) -> alpha 0x80
+    s = _parse_shadow(2.5)
+    assert (s.dx, s.dy) == (2.5, 2.5)
+
+
+def test_parse_shadow_table():
+    s = _parse_shadow({"dx": 2, "dy": 3, "blur": 2, "color": "rgba(0, 0, 0, 0.6)"})
+    assert (s.dx, s.dy, s.blur) == (2, 3, 2)
+    assert s.color == "&H66000000"  # 0.6 -> alpha 0x66
+    # 部分键缺省：dx/dy 缺省 1、blur 缺省 0、color 缺省半透明黑
+    s = _parse_shadow({"color": "#000000FF"})
+    assert (s.dx, s.dy, s.blur) == (1, 1, 0)
+    assert s.color == "&HFF000000"
+
+
+def test_parse_shadow_invalid():
+    with pytest.raises(RuntimeError, match="shadow 配置非法"):
+        _parse_shadow("2")
+    with pytest.raises(RuntimeError, match="shadow 配置非法"):
+        _parse_shadow(True)
+    with pytest.raises(RuntimeError, match="不能为负"):
+        _parse_shadow({"dx": -1})
+    with pytest.raises(RuntimeError, match="shadow.color"):
+        _parse_shadow({"color": "not-a-color"})
+
+
+def test_style_block_shadow_table_equal_offset():
+    """dx==dy 时 Shadow 字段写标量偏移，BackColour 写阴影色。"""
+    style = {"zh_font_name": "F", "outline": 2, "shadow": {"dx": 2, "dy": 2, "color": "#000000FF"}}
+    s = _style_block(1920, 1080, style, 54, 40, 20)
+    assert ",&HFF000000," in s  # BackColour = 不透明黑
+    assert ",1,2,2,2,20,20,40,1" in s  # BorderStyle=1, Outline=2, Shadow=2, Alignment=2
+
+
+def test_style_block_shadow_table_xy_diff():
+    """dx≠dy 时 Shadow 字段写 0（内联 \\xshad/\\yshad 控制）。"""
+    style = {"zh_font_name": "F", "outline": 2, "shadow": {"dx": 1, "dy": 3}}
+    s = _style_block(1920, 1080, style, 54, 40, 20)
+    assert ",1,2,0,2,20,20,40,1" in s
+
+
+def test_style_block_shadow_table_blur():
+    """blur>0 双层渲染时 Shadow 字段写 0（阴影层控制）。"""
+    style = {"zh_font_name": "F", "outline": 2, "shadow": {"blur": 2}}
+    s = _style_block(1920, 1080, style, 54, 40, 20)
+    assert ",1,2,0,2,20,20,40,1" in s
+
+
+def test_build_ass_two_layer_shadow():
+    """blur>0：每条字幕渲染阴影层 + 文本层；阴影层偏移/模糊/阴影色，文本层保持原样式。"""
+    style = {**_STYLE, "shadow": {"dx": 2, "dy": 3, "blur": 2, "color": "rgba(0, 0, 0, 0.6)"}}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    dls = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
+    assert len(dls) == 2
+    sh, tx = dls
+    # 阴影层：偏移 dx=2/dy=3、关描边、阴影色、模糊
+    assert "{\\pos(962.0,1029.0)\\bord0\\1c&H66000000\\blur2}" in sh
+    # 文本层：无偏移 pos，无 blur/bord0 覆盖（正文保持锐利）
+    assert "{\\pos(960.0,1026.0)}你好\\N{\\rSecondary}hello" in tx
+    assert "\\blur" not in tx and "\\bord0" not in tx
+    # Style 行 Shadow=0（双层控制）
+    assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&H00000000,&H66000000,0,0,0,0,100,100,0,0,1,2,0,2" in ass
+
+
+def test_build_ass_two_layer_bilingual():
+    """双语双层：副语言段 \\rSecondary 后重设阴影参数（\\r 会重置样式类标签）。"""
+    style = {**_STYLE, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    sh = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,") and "\\blur" in l)
+    assert "你好\\N{\\rSecondary\\bord0\\1c&H80000000\\blur2}hello" in sh
+
+
+def test_build_ass_single_layer_xy_diff():
+    """blur=0 且 dx≠dy：内联 \\xshad/\\yshad 前缀，双语每段重设。"""
+    style = {**_STYLE, "shadow": {"dx": 1, "dy": 3}}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    dls = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
+    assert len(dls) == 1
+    assert "{\\xshad1\\yshad3}你好\\N{\\rSecondary\\xshad1\\yshad3}hello" in dls[0]
+
+
+def test_build_ass_single_layer_equal_offset():
+    """blur=0 且 dx==dy：无内联标签，Style Shadow 字段承载偏移。"""
+    style = {**_STYLE, "shadow": {"dx": 2, "dy": 2}}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    assert "\\xshad" not in ass and "\\pos(" not in ass
+    assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,2,2" in ass
+
+
+def test_build_ass_bg_with_two_layer_shadow():
+    """背景条 + 双层阴影：三个 Dialogue，顺序为背景 -> 阴影层 -> 文本层。"""
+    style = {**_STYLE, "bg_enabled": True, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    dls = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
+    assert len(dls) == 3
+    assert "\\p1" in dls[0]    # 背景条
+    assert "\\blur" in dls[1]  # 阴影层
+    assert "你好" in dls[2] and "\\blur" not in dls[2]  # 文本层
+
+
+def test_build_ass_srt_two_layer(tmp_path):
+    """SRT 直转路径：双层渲染同样生效。"""
+    srt = tmp_path / "s.srt"
+    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nHello World\n\n", encoding="utf-8")
+    style = {**_STYLE, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
+    ass = build_ass(srt, style, _PROBE)
+    dls = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
+    assert len(dls) == 2
+    assert "{\\pos(962.0,1029.0)\\bord0\\1c&H80000000\\blur2}Hello World" in dls[0]
+    assert "{\\pos(960.0,1026.0)}Hello World" in dls[1]
+    assert "Style: Default,ZH-Font,54," in ass
+
+
+def test_build_ass_srt_single_layer_xy_diff(tmp_path):
+    srt = tmp_path / "s.srt"
+    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nHello World\n\n", encoding="utf-8")
+    style = {**_STYLE, "shadow": {"dx": 1, "dy": 3}}
+    ass = build_ass(srt, style, _PROBE)
+    assert "{\\xshad1\\yshad3}Hello World" in ass

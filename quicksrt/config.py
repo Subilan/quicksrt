@@ -87,6 +87,9 @@ margin_v_ratio = 0.05
 zh_color = "#FFFFFF"
 outline_color = "#000000"
 outline = 2
+# 阴影：数字（旧式，dx=dy=偏移、半透明黑、无模糊）或表 { dx, dy, blur, color }
+# （dx/dy 偏移像素、blur 模糊半径像素、color 阴影颜色含透明度，各键可省）
+# blur > 0 时分层渲染，正文保持锐利；blur = 0 零开销
 shadow = 1
 # 语言模式：bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
 mode = "bilingual"

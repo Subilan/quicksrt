@@ -76,6 +76,12 @@ margin_v_ratio = 0.05
 zh_color = "#FFFFFF"
 outline_color = "#000000"
 outline = 2
+# 阴影：数字（旧式：dx=dy=偏移、半透明黑、无模糊）或表，各键可省：
+#   dx/dy：水平/垂直偏移（像素，可负值）；缺省 1
+#   blur：模糊半径（像素，0 不模糊）；缺省 0（单层渲染，零开销）
+#   color：阴影颜色（CSS 颜色，含透明度，如 rgba(0,0,0,0.6)）；缺省 rgba(0, 0, 0, 0.5)
+# 例：shadow = { dx = 2, dy = 3, blur = 2, color = "rgba(0, 0, 0, 0.6)" }
+# blur > 0 时阴影分层渲染（模糊只作用于阴影，正文保持锐利）
 shadow = 1
 # 语言模式：bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
 mode = "bilingual"

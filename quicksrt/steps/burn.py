@@ -10,6 +10,11 @@ CRF 质量模式 + 慢速 preset，尽量降低二次编码损失。
 中文样式用 zh_font_name/zh_bold/zh_italic/zh_italic_shear，英文用 en_font_name/en_bold/en_italic/en_italic_shear；
 字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体，
 也支持 fontconfig 模式语法 "Family:style=Medium,weight=500"（libass 按字体全名精确匹配）。
+
+阴影（[style] shadow）：支持旧式标量（shadow = 1，dx=dy=1 像素、半透明黑）
+与新式表 shadow = { dx, dy, blur, color }（偏移/模糊/颜色独立控制）。
+blur = 0 时走单层（Style Shadow 字段或 \\xshad/\\yshad 内联，零性能开销）；
+blur > 0 时走双 Dialogue 分层（阴影层偏移+模糊色块，正文保持锐利，渲染两遍）。
 """
 
 from __future__ import annotations
@@ -17,7 +22,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .. import util
 
@@ -61,6 +68,59 @@ def _ass_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
 
 
+_DEFAULT_SHADOW_COLOR = "rgba(0, 0, 0, 0.5)"
+
+
+def _fmt(v: float) -> str:
+    """浮点数值输出：整数不带小数点（ASS 数字格式，如 2 而非 2.0）。"""
+    return str(int(v)) if float(v).is_integer() else f"{v:g}"
+
+
+@dataclass(frozen=True)
+class Shadow:
+    """阴影渲染参数（已解析）：偏移 dx/dy、模糊半径 blur（像素）、颜色 color（ASS &HAABBGGRR）。"""
+    dx: float
+    dy: float
+    blur: float
+    color: str
+
+
+def _parse_shadow(value: Any) -> Shadow:
+    """解析 [style] shadow 配置 -> Shadow，支持三种形态。
+
+    - 未配置/留空：零偏移无阴影（dx=dy=blur=0）
+    - 数字（旧式）：dx=dy=N、无模糊、默认半透明黑
+      （等价 shadow = { dx = N, dy = N }）
+    - 表：{ dx, dy, blur, color }，各键可省略：dx/dy 缺省 1、blur 缺省 0、
+      color 缺省 rgba(0, 0, 0, 0.5)（CSS 颜色，含透明度）
+    非法值（负数、无法解析的颜色、其他类型）抛 RuntimeError。
+    """
+    if value is None or value == "":
+        dx = dy = blur = 0
+        color = _DEFAULT_SHADOW_COLOR
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        dx = dy = float(value)
+        blur = 0
+        color = _DEFAULT_SHADOW_COLOR
+    elif isinstance(value, dict):
+        dx = float(value.get("dx", 1))
+        dy = float(value.get("dy", 1))
+        blur = float(value.get("blur", 0))
+        color = value.get("color", _DEFAULT_SHADOW_COLOR)
+    else:
+        raise RuntimeError(
+            f"shadow 配置非法: {value!r}（支持数字或表，如 shadow = 2 或 "
+            "shadow = { dx = 2, dy = 3, blur = 2, color = \"rgba(0,0,0,0.6)\" }）"
+        )
+    if dx < 0 or dy < 0 or blur < 0:
+        raise RuntimeError(f"shadow 偏移/模糊不能为负: dx={dx} dy={dy} blur={blur}")
+    try:
+        color_ass = util.parse_ass_color(color)
+    except ValueError as e:
+        raise RuntimeError(f"shadow.color 配置非法: {e}") from e
+    return Shadow(dx, dy, blur, color_ass)
+
+
 def _style_block(
     width: int, height: int, cfg_style: dict, fontsize: int, margin_v: int, margin_h: int,
     name: str = "Default", font_name: str | None = None, bold: bool = False, italic: bool = False,
@@ -68,11 +128,14 @@ def _style_block(
 ) -> str:
     font = font_name or cfg_style.get("zh_font_name", "sans-serif")
     color = util.parse_ass_color(color or cfg_style.get("zh_color", "#FFFFFF"))
+    shadow = _parse_shadow(cfg_style.get("shadow"))
+    # BackColour = 阴影色（含 alpha）；Shadow 字段在双层模糊或 x/y 不等偏移时由内联/阴影层控制，写 0
+    style_shadow = 0 if (shadow.blur > 0 or shadow.dx != shadow.dy) else shadow.dx
     return (
         f"Style: {name},{font},{fontsize},{color},&H000000FF,"
-        f"{util.parse_ass_color(cfg_style.get('outline_color', '#000000'))},&H80000000,"
+        f"{util.parse_ass_color(cfg_style.get('outline_color', '#000000'))},{shadow.color},"
         f"{1 if bold else 0},{1 if italic else 0},0,0,100,100,0,0,1,"
-        f"{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},"
+        f"{cfg_style.get('outline', 2)},{_fmt(style_shadow)},"
         f"2,{margin_h},{margin_h},{margin_v},1"
     )
 
@@ -248,6 +311,8 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
         header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "Secondary", s_font, s_bold, s_italic, color=s_color) + "\n"
     header += "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
 
+    shadow = _parse_shadow(cfg_style.get("shadow"))
+    text_bottom = height - margin_v  # 文本块底（alignment=2 底部定位，\pos 锚点）
     lines = [header]
     for it in items:
         primary = _ass_escape(it[primary_lang]).replace("\n", "\\N")
@@ -257,16 +322,39 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
             secondary = _ass_escape(it[secondary_lang]).replace("\n", "\\N")
             if s_shear is not None:
                 secondary = f"{{\\fax{s_shear}}}{secondary}"
-            text = f"{primary}\\N{{\\rSecondary}}{secondary}"
+        if shadow.blur > 0:
+            # 双层渲染：阴影层（模糊色块，偏移 dx/dy）在文本层之下，正文保持锐利
+            text_layer = f"{{\\pos({width / 2:.1f},{text_bottom:.1f})}}{primary}"
+            shadow_layer = (
+                f"{{\\pos({width / 2 + shadow.dx:.1f},{text_bottom + shadow.dy:.1f})"
+                f"\\bord0\\1c{shadow.color}\\blur{_fmt(shadow.blur)}}}{primary}"
+            )
+            if mode == "bilingual":
+                text_layer += f"\\N{{\\rSecondary}}{secondary}"
+                shadow_layer += (
+                    f"\\N{{\\rSecondary\\bord0\\1c{shadow.color}\\blur{_fmt(shadow.blur)}}}{secondary}"
+                )
+            shadow_line = f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{shadow_layer}"
+            text_line = f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{text_layer}"
         else:
-            text = primary
+            # 单层：Style Shadow 字段（dx==dy）或内联 \xshad/\yshad（x/y 不等时，双语每段重设）
+            if shadow.dx != shadow.dy:
+                sh = f"\\xshad{_fmt(shadow.dx)}\\yshad{_fmt(shadow.dy)}"
+                text = f"{{{sh}}}{primary}"
+                if mode == "bilingual":
+                    text += f"\\N{{\\rSecondary{sh}}}{secondary}"
+            else:
+                text = primary
+                if mode == "bilingual":
+                    text += f"\\N{{\\rSecondary}}{secondary}"
+            shadow_line = text_line = f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{text}"
         if bool(cfg_style.get("bg_enabled", False)):
             lines.append(
                 _bg_dialogue(it, width, height, fontsize, en_size, margin_v, margin_h, cfg_style, mode, primary_lang)
             )
-        lines.append(
-            f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{text}"
-        )
+        lines.append(shadow_line)
+        if shadow.blur > 0:
+            lines.append(text_line)
     return "\n".join(lines) + "\n"
 
 
@@ -286,11 +374,13 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{fontsize},{util.parse_ass_color(cfg_style.get('zh_color', '#FFFFFF'))},&H000000FF,{util.parse_ass_color(cfg_style.get('outline_color', '#000000'))},&H80000000,0,0,0,0,100,100,0,0,1,{cfg_style.get('outline', 2)},{cfg_style.get('shadow', 1)},2,{margin_h},{margin_h},{margin_v},1
+{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", font)}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+    shadow = _parse_shadow(cfg_style.get("shadow"))
+    text_bottom = height - margin_v
     lines = [header]
     for raw in srt_path.read_text(encoding="utf-8").split("\n\n"):
         raw = raw.strip()
@@ -310,9 +400,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # 注意顺序：先转义 \ { }，再把 \n 换成 ASS 换行符 \N（\N 的反斜杠不能再被转义）
         text = _ass_escape(parts[2].replace("\r", ""))
         text = text.replace("\n", "\\N")
-        lines.append(
-            f"Dialogue: 0,{_ass_ts(to_sec(ts[0]))},{_ass_ts(to_sec(ts[1]))},Default,,0,0,0,,{text}"
-        )
+        ts_head = f"Dialogue: 0,{_ass_ts(to_sec(ts[0]))},{_ass_ts(to_sec(ts[1]))},Default,,0,0,0,,"
+        if shadow.blur > 0:
+            text_layer = f"{{\\pos({width / 2:.1f},{text_bottom:.1f})}}{text}"
+            shadow_layer = (
+                f"{{\\pos({width / 2 + shadow.dx:.1f},{text_bottom + shadow.dy:.1f})"
+                f"\\bord0\\1c{shadow.color}\\blur{_fmt(shadow.blur)}}}{text}"
+            )
+            lines.append(ts_head + shadow_layer)
+            lines.append(ts_head + text_layer)
+        else:
+            if shadow.dx != shadow.dy:
+                text = f"{{\\xshad{_fmt(shadow.dx)}\\yshad{_fmt(shadow.dy)}}}{text}"
+            lines.append(ts_head + text)
     return "\n".join(lines) + "\n"
 
 
