@@ -111,12 +111,11 @@ en_italic_shear = ""
 # 英文独立颜色（CSS 颜色：rgb()/rgba()/#HEX）；留空时英文跟随 zh_color
 en_color = ""
 # 字幕背景：libass BorderStyle=3 box，背景由渲染器按文本实际渲染范围绘制（严格贴合文本，
-# 非全宽）；bg_color 为 CSS 颜色（如 rgba(0,0,0,0.5) 半透明黑，或 #00000080），透明度按
-# box 双层叠加效应做过平方根校正，配置值即最终视觉效果；bg_padding_ratio 为内边距相对字号比例。
-# 开启后阴影/描边配置被忽略（背景替代其可读性作用），libass 渲染（ffmpeg ass 滤镜）
-bg_enabled = false
-bg_color = "rgba(0, 0, 0, 0.5)"
-bg_padding_ratio = 0.35
+# 非全宽）；写 bg = { padding, color } 即启用（出现即开，不写或 bg = false 禁用），
+# padding 为内边距相对字号比例（缺省 0.35），color 为 CSS 颜色（如 rgba(0,0,0,0.5) 半透明黑，
+# 或 #00000080，缺省 rgba(0, 0, 0, 0.5)），透明度按 box 双层叠加效应做过平方根校正，
+# 配置值即最终视觉效果。开启后阴影/描边配置被忽略（背景替代其可读性作用），libass 渲染（ffmpeg ass 滤镜）
+bg = false
 
 [preview]
 # 预览背景色（ffmpeg color 源支持的颜色名或 #RRGGBB）

@@ -11,6 +11,7 @@ from quicksrt.steps.burn import (
     _lang_color,
     _lang_shear,
     _lang_style,
+    _parse_bg,
     _parse_shadow,
     _resolve_font,
     _style_block,
@@ -323,23 +324,63 @@ def test_build_ass_italic_shear():
 
 
 def test_bg_ass_color_alpha_compensation():
-    """bg_color 解析 + alpha 平方根校正：libass box 为两层叠加，
+    """bg 颜色解析 + alpha 平方根校正：libass box 为两层叠加，
     视觉不透明度 = 1-(a/255)²，校正后配置的透明度精确生效。"""
     # rgba(0,0,0,0.5) -> ASS alpha 128 -> 校正 181（视觉 50% 黑）
-    assert _bg_ass_color({**{'bg_color': "rgba(0, 0, 0, 0.5)"}}) == "&HB5000000"
+    assert _bg_ass_color("rgba(0, 0, 0, 0.5)") == "&HB5000000"
     # 不透明色 alpha=0 不变
-    assert _bg_ass_color({**{'bg_color': "#000000"}}) == "&H00000000"
+    assert _bg_ass_color("#000000") == "&H00000000"
     # #RRGGBBAA 的 AA 是 ASS alpha，同样校正
-    assert _bg_ass_color({**{'bg_color': "#00000080"}}) == "&HB5000000"
-    # 默认值
-    assert _bg_ass_color({}) == "&HB5000000"
+    assert _bg_ass_color("#00000080") == "&HB5000000"
+
+
+def test_parse_bg_unset():
+    """未配置：禁用；启用缺省参数 padding=0.35、默认半透明黑。"""
+    bg = _parse_bg({})
+    assert bg.enabled is False
+    assert bg.padding == 0.35
+    assert bg.color == "&HB5000000"  # 默认色 + alpha 校正
+
+
+def test_parse_bg_bool():
+    assert _parse_bg({"bg": True}).enabled is True
+    assert _parse_bg({"bg": False}).enabled is False
+
+
+def test_parse_bg_table_appears_enables():
+    """表出现即启用；各键可省（空表用默认参数）。"""
+    bg = _parse_bg({"bg": {}})
+    assert (bg.enabled, bg.padding, bg.color) == (True, 0.35, "&HB5000000")
+    bg = _parse_bg({"bg": {"padding": 0.2, "color": "#000000"}})
+    assert (bg.enabled, bg.padding, bg.color) == (True, 0.2, "&H00000000")
+    # 只写一个键，另一个走默认
+    bg = _parse_bg({"bg": {"padding": 0.4}})
+    assert (bg.enabled, bg.padding, bg.color) == (True, 0.4, "&HB5000000")
+
+
+def test_parse_bg_legacy_keys():
+    """旧式独立键 bg_enabled/bg_color/bg_padding_ratio 兼容；bg 表优先。"""
+    bg = _parse_bg({"bg_enabled": True, "bg_padding_ratio": 0.3})
+    assert (bg.enabled, bg.padding) == (True, 0.3)
+    assert _parse_bg({"bg_enabled": False}).enabled is False
+    bg = _parse_bg({"bg_enabled": True, "bg": {"padding": 0.2}})
+    assert (bg.enabled, bg.padding) == (True, 0.2)
+
+
+def test_parse_bg_invalid():
+    with pytest.raises(RuntimeError, match="bg 配置非法"):
+        _parse_bg({"bg": "yes"})
+    with pytest.raises(RuntimeError, match="bg.padding"):
+        _parse_bg({"bg": {"padding": -1}})
+    with pytest.raises(RuntimeError, match="bg.color"):
+        _parse_bg({"bg": {"color": "not-a-color"}})
 
 
 def test_build_ass_bg_box_style():
     """bg_enabled：Default/Secondary 样式切 BorderStyle=3，
     OutlineColour=BackColour=box 色（含 alpha），Shadow=1（box 走 outline 槽），
     Outline=按字号的内边距。"""
-    style = {**_STYLE, "bg_enabled": True, "bg_color": "rgba(0, 0, 0, 0.5)", "bg_padding_ratio": 0.35}
+    style = {**_STYLE, "bg": {"padding": 0.35, "color": "rgba(0, 0, 0, 0.5)"}}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&HB5000000,&HB5000000,0,0,0,0,100,100,0,0,3,18.9,1,2" in ass
     assert "Style: Secondary,EN-Font,32,&H00FFFFFF,&H000000FF,&HB5000000,&HB5000000,0,0,0,0,100,100,0,0,3,11.2,1,2" in ass
@@ -348,7 +389,7 @@ def test_build_ass_bg_box_style():
 
 def test_build_ass_bg_inline_bord():
     """文本 Dialogue 内联 \\bord 按各语言字号设置 box 内边距（主 18.9 / 副 11.2）。"""
-    style = {**_STYLE, "bg_enabled": True, "bg_padding_ratio": 0.35}
+    style = {**_STYLE, "bg": {"padding": 0.35}}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     dl = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,"))
     assert "{\\bord18.9}你好\\N{\\rSecondary}{\\bord11.2}hello" in dl
@@ -356,7 +397,7 @@ def test_build_ass_bg_inline_bord():
 
 def test_build_ass_bg_mono():
     """mono 模式：单 \\bord，无副语言段。"""
-    style = {**_STYLE, "bg_enabled": True, "bg_padding_ratio": 0.35}
+    style = {**_STYLE, "bg": {"padding": 0.35}}
     ass = build_ass_items(_ITEMS, style, _PROBE, mode="mono")
     assert "Style: Secondary" not in ass
     dl = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,"))
@@ -365,7 +406,7 @@ def test_build_ass_bg_mono():
 
 def test_build_ass_bg_with_shear():
     """bg + italic_shear：\\bord 与 \\fax 合并进同一 override。"""
-    style = {**_STYLE, "bg_enabled": True, "zh_italic_shear": 0.2, "en_italic_shear": "-0.15"}
+    style = {**_STYLE, "bg": True, "zh_italic_shear": 0.2, "en_italic_shear": "-0.15"}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     dl = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,"))
     assert "{\\bord18.9\\fax0.2}你好\\N{\\rSecondary}{\\bord11.2\\fax-0.15}hello" in dl
@@ -373,7 +414,7 @@ def test_build_ass_bg_with_shear():
 
 def test_build_ass_bg_ignores_shadow():
     """bg 模式覆盖 shadow：不输出阴影层/模糊层，文本行只有一条。"""
-    style = {**_STYLE, "bg_enabled": True, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
+    style = {**_STYLE, "bg": True, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert ass.count("Dialogue: 0,") == 1
     assert "\\blur" not in ass and "\\pos(" not in ass
@@ -390,7 +431,7 @@ def test_build_ass_srt_bg(tmp_path):
     """build_ass（srt 直烧路径）同样支持 box 背景。"""
     srt = tmp_path / "s.srt"
     srt.write_text("1\n00:00:01,000 --> 00:00:02,000\n你好\n\n", encoding="utf-8")
-    style = {**_STYLE, "bg_enabled": True, "bg_padding_ratio": 0.35}
+    style = {**_STYLE, "bg": {"padding": 0.35}}
     ass = build_ass(srt, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&HB5000000,&HB5000000,0,0,0,0,100,100,0,0,3,18.9,1,2" in ass
     assert "{\\bord18.9}你好" in ass
@@ -507,7 +548,7 @@ def test_build_ass_single_layer_equal_offset():
 
 def test_build_ass_bg_with_two_layer_shadow():
     """背景 + 双层阴影：box 背景替代阴影层，只输出文本层一条（避免双重 box）。"""
-    style = {**_STYLE, "bg_enabled": True, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
+    style = {**_STYLE, "bg": True, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     dls = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
     assert len(dls) == 1

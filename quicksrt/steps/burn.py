@@ -15,6 +15,11 @@ CRF 质量模式 + 慢速 preset，尽量降低二次编码损失。
 与新式表 shadow = { dx, dy, blur, color }（偏移/模糊/颜色独立控制）。
 blur = 0 时走单层（Style Shadow 字段或 \\xshad/\\yshad 内联，零性能开销）；
 blur > 0 时走双 Dialogue 分层（阴影层偏移+模糊色块，正文保持锐利，渲染两遍）。
+
+字幕背景（[style] bg）：libass BorderStyle=3 box，背景按文本实际渲染范围绘制（贴合文本）。
+写 bg = { padding, color } 即启用（出现即开，不写或 bg = false 禁用；padding 缺省 0.35、
+color 缺省 rgba(0,0,0,0.5)，也支持布尔简写 bg = true/false）；
+开启后阴影/描边被忽略（背景替代其可读性作用）。
 """
 
 from __future__ import annotations
@@ -70,6 +75,7 @@ def _ass_escape(text: str) -> str:
 
 
 _DEFAULT_SHADOW_COLOR = "rgba(0, 0, 0, 0.5)"
+_DEFAULT_BG_COLOR = "rgba(0, 0, 0, 0.5)"  # 背景默认色（与阴影默认色相同）
 
 
 def _fmt(v: float) -> str:
@@ -140,7 +146,7 @@ def _style_block(
     color = util.parse_ass_color(color or cfg_style.get("zh_color", "#FFFFFF"))
     shadow = _parse_shadow(cfg_style.get("shadow"))
     if box:
-        box_color = box_color or _bg_ass_color(cfg_style)
+        box_color = box_color or _parse_bg(cfg_style).color
         outline_color, back_color, border_style = box_color, box_color, 3
         outline, style_shadow = box_padding, 1
     else:
@@ -170,15 +176,66 @@ def _style_mode(cfg_style: dict) -> tuple[str, str]:
     return mode, primary
 
 
-def _bg_ass_color(cfg_style: dict) -> str:
-    """解析 bg_color（CSS 颜色）-> ASS &HAABBGGRR，并对 alpha 做平方根校正。
+@dataclass(frozen=True)
+class Bg:
+    """字幕背景渲染参数（已解析）：开关 enabled、内边距比例 padding（相对字号）、
+    颜色 color（ASS &HAABBGGRR，已做 box 双层叠加的 alpha 平方根校正）。"""
+    enabled: bool
+    padding: float
+    color: str
+
+
+def _parse_bg(cfg_style: dict) -> Bg:
+    """解析 [style] bg 配置 -> Bg，支持三种形态。
+
+    - 未配置/留空：禁用（enabled=False）；启用时 padding 缺省 0.35（内边距相对字号
+      比例）、color 缺省 rgba(0, 0, 0, 0.5)
+    - 布尔简写：bg = true 启用 / bg = false 禁用
+    - 表 bg = { padding, color }：出现即启用，各键可省（空表 bg = {} 用默认参数启用）；
+      enabled 键不再需要，若写了仍兼容（false 显式禁用）
+    （兼容旧式三个独立键 bg_enabled/bg_color/bg_padding_ratio：bg 键优先，否则旧键生效）
+    非法值（padding 负/无法转换、颜色无法解析、其他类型）抛 RuntimeError。
+    """
+    bg = cfg_style.get("bg")
+    if bg is None or bg == "":
+        # 无 bg 键：回退旧式独立键（bg_enabled 缺省 false = 禁用）
+        enabled = bool(cfg_style.get("bg_enabled", False))
+        padding_raw = cfg_style.get("bg_padding_ratio", 0.35)
+        color = cfg_style.get("bg_color", _DEFAULT_BG_COLOR)
+    elif isinstance(bg, bool):
+        enabled = bg
+        padding_raw, color = 0.35, _DEFAULT_BG_COLOR
+    elif isinstance(bg, dict):
+        enabled = bool(bg.get("enabled", True))  # 表出现即启用
+        padding_raw = bg.get("padding", 0.35)
+        color = bg.get("color", _DEFAULT_BG_COLOR)
+    else:
+        raise RuntimeError(
+            f"bg 配置非法: {bg!r}（支持布尔或表，如 bg = true 或 "
+            "bg = { padding = 0.35, color = \"rgba(0,0,0,0.5)\" }）"
+        )
+    try:
+        padding = float(padding_raw)
+    except (TypeError, ValueError) as e:
+        raise RuntimeError(f"bg.padding 配置非法: {padding_raw!r}") from e
+    if padding < 0:
+        raise RuntimeError(f"bg.padding 不能为负: {padding}")
+    try:
+        color_ass = _bg_ass_color(color)
+    except ValueError as e:
+        raise RuntimeError(f"bg.color 配置非法: {e}") from e
+    return Bg(enabled, padding, color_ass)
+
+
+def _bg_ass_color(color: str) -> str:
+    """解析背景颜色（CSS 颜色）-> ASS &HAABBGGRR，并对 alpha 做平方根校正。
 
     libass 的 BorderStyle=3 box 实际渲染为 box 本体 + 1px 偏移副本两层叠加
     （\bord 内边距下 box 走 OutlineColour，副本走 BackColour），
     视觉不透明度 = 1 - (a'/255)²。令其等于配置语义 1-a/255，解得
     a' = 255·√(a/255)，使配置的透明度（如 rgba(0,0,0,0.5) 半透明黑）在最终渲染中精确生效。
     """
-    color = util.parse_ass_color(cfg_style.get("bg_color", "rgba(0, 0, 0, 0.5)"))
+    color = util.parse_ass_color(color)
     a = int(color[2:4], 16)  # &HAA BB GG RR
     a = round(255 * math.sqrt(a / 255))
     return "&H" + f"{a:02X}" + color[4:10]
@@ -188,11 +245,6 @@ def _bg_color_parts(bg_color: str) -> tuple[str, str]:
     """拆分 ASS &HAABBGGRR -> (\1c 颜色, \1a alpha)，供内联颜色覆盖使用。"""
     c = bg_color.strip()
     return "&H" + c[4:10], "&H" + c[2:4]
-
-
-def _bg_bord(cfg_style: dict, fontsize: float) -> float:
-    """box 内边距（\bord 像素值）：bg_padding_ratio × 字号。"""
-    return float(cfg_style.get("bg_padding_ratio", 0.35)) * fontsize
 
 
 def _lang_color(cfg_style: dict, lang: str) -> str:
@@ -296,10 +348,10 @@ def build_ass_items(items: list[dict], cfg_style: dict, probe: dict,
     p_shear = _lang_shear(cfg_style, primary_lang)
     s_shear = _lang_shear(cfg_style, secondary_lang)
 
-    bg_enabled = bool(cfg_style.get("bg_enabled", False))
-    bg_color = _bg_ass_color(cfg_style) if bg_enabled else None
-    bg_pad_p = _bg_bord(cfg_style, fontsize) if bg_enabled else 0.0
-    bg_pad_s = _bg_bord(cfg_style, en_size) if bg_enabled else 0.0
+    bg = _parse_bg(cfg_style)
+    bg_color = bg.color if bg.enabled else None
+    bg_pad_p = bg.padding * fontsize if bg.enabled else 0.0
+    bg_pad_s = bg.padding * en_size if bg.enabled else 0.0
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -310,10 +362,10 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", p_font, p_bold, p_italic, color=p_color, box=bg_enabled, box_color=bg_color, box_padding=bg_pad_p)}
+{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", p_font, p_bold, p_italic, color=p_color, box=bg.enabled, box_color=bg_color, box_padding=bg_pad_p)}
 """
     if mode == "bilingual":
-        header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "Secondary", s_font, s_bold, s_italic, color=s_color, box=bg_enabled, box_color=bg_color, box_padding=bg_pad_s) + "\n"
+        header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "Secondary", s_font, s_bold, s_italic, color=s_color, box=bg.enabled, box_color=bg_color, box_padding=bg_pad_s) + "\n"
     header += "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
 
     shadow = _parse_shadow(cfg_style.get("shadow"))
@@ -321,7 +373,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
     lines = [header]
     for it in items:
         primary = _ass_escape(it[primary_lang]).replace("\n", "\\N")
-        if bg_enabled:
+        if bg.enabled:
             # 背景模式：BorderStyle=3 box 随文本渲染（libass 按实际文本范围绘制），
             # 每行内联 \bord 设置按各自字号的内边距；阴影层/描边被 box 替代
             ov_p = f"\\bord{_fmt(bg_pad_p)}"
@@ -387,9 +439,9 @@ def build_ass(srt_path: Path, cfg_style: dict, probe: dict) -> str:
     margin_h = round(width * 0.03)
     font = cfg_style.get("zh_font_name", _DEFAULT_FONT)
     font = _ensure_font(_resolve_font(font, False, False)[0], "zh")
-    bg_enabled = bool(cfg_style.get("bg_enabled", False))
-    bg_color = _bg_ass_color(cfg_style) if bg_enabled else None
-    bg_pad = _bg_bord(cfg_style, fontsize) if bg_enabled else 0.0
+    bg = _parse_bg(cfg_style)
+    bg_color = bg.color if bg.enabled else None
+    bg_pad = bg.padding * fontsize if bg.enabled else 0.0
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -399,7 +451,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", font, box=bg_enabled, box_color=bg_color, box_padding=bg_pad)}
+{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", font, box=bg.enabled, box_color=bg_color, box_padding=bg_pad)}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -426,7 +478,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         text = _ass_escape(parts[2].replace("\r", ""))
         text = text.replace("\n", "\\N")
         ts_head = f"Dialogue: 0,{_ass_ts(to_sec(ts[0]))},{_ass_ts(to_sec(ts[1]))},Default,,0,0,0,,"
-        if bg_enabled:
+        if bg.enabled:
             text = f"{{\\bord{_fmt(bg_pad)}}}{text}"
             lines.append(ts_head + text)
         elif shadow.blur > 0:
