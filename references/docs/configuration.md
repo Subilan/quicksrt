@@ -10,6 +10,19 @@ quicksrt 的配置分三层：
 
 优先级：**环境变量 > `config.toml` > `presets.toml` > 内置默认值**。`config.toml` 中没写的键取内置默认，内置默认值定义在 `quicksrt/config.py` 的 `DEFAULT_TOML`。
 
+## 语言模型（language agnostic）
+
+链路用「语言码」标识语言、用「角色」标识职责，二者正交：
+
+| 角色 | 含义 | 配置位置 | 缺省 |
+| --- | --- | --- | --- |
+| `source` | 源语言（视频原始语言，ASR 输入） | `[asr] language` | `en` |
+| `target` | 翻译目标语言 | `[translate] target_lang` | `zh` |
+| `primary` | 显示主语言（在上、大字号） | `[style] primary_lang` | 取 `target` |
+| `secondary` | 显示副语言（在下、小字号） | `[style] secondary_lang` | 翻译对中非主语言的那个（通常即 `source`） |
+
+语言码为 BCP-47 风格（`en`/`zh`/`ja`/`ko`…），只作为数据出现于配置、文件名（`segments_<语言码>.json`）与 `refined.json` 字段。样式（`[style]`/`presets.toml`）只描述 primary/secondary 两个显示角色的视觉属性，**与语言无关**——任意语言组合可套用同一套样式。
+
 ---
 
 ## 密钥（.env / 环境变量）
@@ -55,7 +68,7 @@ yt-dlp 下载参数。
 | `model` | `"qwen3-asr-flash-filetrans"` | 转写模型。异步文件转写，支持字级时间戳，最长 12 小时音频 |
 | `region` | `"cn-beijing"` | 百炼地域。**注意**：北京/新加坡地域的 API Key 不通用 |
 | `endpoint` | `""` | API endpoint。留空时自动拼接为 `https://{DASHSCOPE_WORKSPACE_ID}.{region}.maas.aliyuncs.com/api/v1`（此时必须设置 `DASHSCOPE_WORKSPACE_ID` 环境变量） |
-| `language` | `"en"` | 源语言。本链路为英文 → 简体中文，保持 `en` |
+| `language` | `"en"` | 源语言（视频原始语言，任意语言码，如 en/zh/ja/ko）。传给 ASR 服务，也是下游 segments 文件名的语言码 |
 | `enable_words` | `true` | 启用字级时间戳。refine 拆句按字符数比例分配时间需要它 |
 | `enable_itn` | `false` | 逆文本正则化（把口语数字/标点规范为书面形式）。字幕场景关闭，保留原文说法 |
 | `poll_interval` | `5` | 轮询任务状态的间隔（秒） |
@@ -74,7 +87,7 @@ yt-dlp 下载参数。
 
 ### `[translate]`
 
-DeepSeek 翻译为简体中文。使用结构化输出（`json_object` 模式），每批独立落盘断点续跑。
+DeepSeek 翻译。使用结构化输出（`json_object` 模式），每批独立落盘断点续跑。语言方向：`source_lang` → `target_lang`，任意语言组合。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
@@ -85,6 +98,9 @@ DeepSeek 翻译为简体中文。使用结构化输出（`json_object` 模式）
 | `batch_max_chars` | `3000` | 每个翻译批次的最大字符数。按批次切分、并发翻译、缓存落盘 |
 | `max_retries` | `3` | 单批次失败重试次数 |
 | `max_concurrency` | `4` | 并发翻译的批次数（DeepSeek 限流宽松，默认 4） |
+| `source_lang` | `""` | 翻译读取的源语言。缺省取 `[asr] language`；显式设置可覆盖（读 `segments_<该码>.json`） |
+| `target_lang` | `"zh"` | 翻译目标语言（任意语言码）。输出 `segments_<该码>.json` |
+| `prompt_template` | `""` | 翻译提示词模板，完全自定义；缺省用内置预设模板。占位符：`{source_lang}`/`{target_lang}`（语言名，如 English/简体中文）、`{source}`/`{target}`（语言码）。内置语言名表覆盖常见语言（未知语言码回退用原码）；模板中其他字面 `{}` 原样保留。**修改模板会触发整段重译** |
 | `context_template` | `""` | 翻译上下文模板，渲染后注入 system prompt。占位符取 meta.json 字段（`{title}` `{description}` `{uploader}` `{url}` 等），缺失渲染为空串。用于统一专有名词译法、理解视频内容；**修改模板会触发整段重译**。留空不附加 |
 
 ### `[srt]`
@@ -100,40 +116,44 @@ DeepSeek 翻译为简体中文。使用结构化输出（`json_object` 模式）
 
 ### `[refine]`
 
-显示层后处理（拆句/标点/接缝），输出双语 `refined.json`，不修改 `segments_en/zh.json` 原始数据。
+显示层后处理（拆句/标点/接缝），输出双语 `refined.json`，不修改 `segments_<语言码>.json` 原始数据。拆句以显示主语言（`primary_lang`，须为源或目标语言之一）为准，按该语言的规则表拆句。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
 | `min_gap` | `0.35` | 前后接缝优化：相邻字幕间隔小于该值（秒）时，前一条延伸至后一条开始，消除闪烁 |
-| `strip_end_punct` | `true` | 去掉字幕末尾的句号（中文字幕惯例不带句号） |
-| `max_chars` | `42` | 拆句优化：单条字幕文本超过该长度（字符）时，在分句标点（`，、；`）处拆成多条；拆出条目时间按字符数比例从原句时间中分配 |
-| `split_on_space` | `false` | 是否把空格（半角/全角）也作为中文分句分隔符；不设或 `false` 则仅在分句标点处拆句 |
+| `strip_end_punct` | `true` | 去掉拆句主语言文本末尾的句号/逗号等（规则按语言表：zh/ja 去、拉丁系保留） |
+| `max_chars` | `42` | 拆句优化：单条字幕文本超过该长度（字符）时，在分句标点处拆成多条；拆出条目时间按字符数比例从原句时间中分配 |
+| `split_on_space` | `false` | 是否把空格（半角/全角）也作为分句分隔符；缺省按拆句主语言的规则表（zh 不拆、拉丁系拆） |
+| `split_punct` | `""` | 拆句规则覆盖（一般不设）：分句标点集合。缺省按拆句主语言从内置语言规则表取（zh/ja/en 预置，未知语言用 Unicode 通用规则）；显式设置后覆盖语言表 |
+| `strip_punct` | `""` | 同上：句尾去除的标点集合（如 `"。．，、；"`） |
+| `break_after` | `""` | 同上：行内断行的后缀字符（中文虚词/日文助词），留空则按空格断 |
 
 ### `[style]`
 
-烧录样式（libass / ASS 风格）。详细字段如下，也可通过 `preset` 引用 `presets.toml` 中的命名预设。
+烧录样式（libass / ASS 风格）。样式描述的是**两个显示角色**的视觉属性：`primary`（主行，在上、大字号）与 `secondary`（副行，在下、小字号），与具体语言无关；语言码（`primary_lang`/`secondary_lang`）是实例化数据，缺省链见上文「语言模型」。也可通过 `preset` 引用 `presets.toml` 中的命名预设。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
 | `preset` | （无） | 样式预设名（见 presets.toml）。预设为基底，本段显式字段覆盖预设；不写则只用本段 |
-| `zh_font_name` | `"sans-serif"` | 中文主字体。三种写法：fontconfig 通用家族名（`sans-serif`，不依赖系统安装的特定字体，渲染时回退系统默认中文字体）；变体全名精确指定字重/斜体（如 `"IBM Plex Sans SemiBold"` / `"IBM Plex Sans Italic"`）；fontconfig 模式（如 `"Heiti SC:style=Medium,weight=500"`，精确匹配字重/斜体，内部转成字体全名 `Family Style` 形式供 libass 匹配） |
-| `font_size_ratio` | `0.05` | 主字号相对视频高度的比例。如 1080p 视频字号 = 1080 × 0.05 = 54px |
+| `primary_font_name` | `"sans-serif"` | 主行字体。三种写法：fontconfig 通用家族名（`sans-serif`，不依赖系统安装的特定字体，渲染时回退系统默认字体）；变体全名精确指定字重/斜体（如 `"IBM Plex Sans SemiBold"` / `"IBM Plex Sans Italic"`）；fontconfig 模式（如 `"Heiti SC:style=Medium,weight=500"`，精确匹配字重/斜体，内部转成字体全名 `Family Style` 形式供 libass 匹配） |
+| `font_size_ratio` | `0.05` | 主行字号相对视频高度的比例。如 1080p 视频字号 = 1080 × 0.05 = 54px |
 | `margin_v_ratio` | `0.05` | 垂直边距相对视频高度的比例 |
-| `zh_color` | `"#FFFFFF"` | 中文主色，CSS 颜色：`rgb()`/`rgba()`/`#HEX`（如 `#FFFFFF`、`rgba(255,255,255,1)`） |
+| `primary_color` | `"#FFFFFF"` | 主行颜色，CSS 颜色：`rgb()`/`rgba()`/`#HEX`（如 `#FFFFFF`、`rgba(255,255,255,1)`） |
 | `outline_color` | `"#000000"` | 描边颜色 |
 | `outline` | `2` | 描边宽度（像素，随分辨率缩放） |
 | `shadow` | `1` | 阴影深度 |
 | `mode` | `"bilingual"` | 语言模式：`bilingual`（双语，主语言在上、副语言在下）\| `mono`（单语，只显示主语言） |
-| `primary_lang` | `"zh"` | 主语言：`zh` \| `en`（主语言在上、大字号；`en` 时双语为英文在上、中文在下） |
-| `zh_bold` | `false` | 中文假粗体（不依赖字体变体；要精确字重直接填 `zh_font_name` 变体全名） |
-| `zh_italic` | `false` | 中文假斜体（同上） |
-| `zh_italic_shear` | `""` | 中文假斜体倾角：libass `\fax` 剪切值（剪切角正切），建议范围 -2~2（对应约 ±63°，0 为垂直）；超出范围仍可解析但字形严重变形；正数向右倾、负数向左。留空用 libass 默认假斜体；**设置后自动关闭 Italic 标志**（避免双重倾斜） |
-| `en_font_name` | `"sans-serif"` | 英文独立字体（写法同 `zh_font_name`；英文做主/副语言均生效，字号跟随主/副位置） |
-| `en_font_ratio` | `0.6` | 英文字号相对主字号的比例（副语言行用） |
-| `en_bold` | `false` | 英文假粗体 |
-| `en_italic` | `false` | 英文假斜体 |
-| `en_color` | `""` | 英文独立颜色（CSS 颜色）；留空时英文跟随 `zh_color` |
-| `en_italic_shear` | `""` | 英文假斜体倾角（同 `zh_italic_shear`，作用于英文） |
+| `primary_lang` | `""` | 主语言（在上、大字号）：任意语言码（BCP-47 风格，如 zh/en/ja/ko）。缺省取 `[translate] target_lang` |
+| `secondary_lang` | `""` | 副语言（在下、小字号）：任意语言码。缺省取翻译对中非主语言的那个（通常即 `[asr] language` 源语言）；主语言显式设为源语言时副语言自动为目标语言 |
+| `primary_bold` | `false` | 主行假粗体（不依赖字体变体；要精确字重直接填 `primary_font_name` 变体全名） |
+| `primary_italic` | `false` | 主行假斜体（同上） |
+| `primary_italic_shear` | `""` | 主行假斜体倾角：libass `\fax` 剪切值（剪切角正切），建议范围 -2~2（对应约 ±63°，0 为垂直）；超出范围仍可解析但字形严重变形；正数向右倾、负数向左。留空用 libass 默认假斜体；**设置后自动关闭 Italic 标志**（避免双重倾斜） |
+| `secondary_font_name` | `"sans-serif"` | 副行字体（写法同 `primary_font_name`；缺省跟随主行字体） |
+| `secondary_font_ratio` | `0.6` | 副行字号 = 主行字号 × 该比例 |
+| `secondary_bold` | `false` | 副行假粗体 |
+| `secondary_italic` | `false` | 副行假斜体 |
+| `secondary_color` | `""` | 副行独立颜色（CSS 颜色）；留空时副行跟随 `primary_color` |
+| `secondary_italic_shear` | `""` | 副行假斜体倾角（同 `primary_italic_shear`，作用于副行） |
 | `bg` | `false` | 字幕背景：libass `BorderStyle=3` box，背景由渲染器按文本实际渲染范围绘制（严格贴合文本，非全宽），随字幕显示。布尔简写：`bg = true` 启用 / `bg = false` 禁用（缺省 `false`）；或写表 `bg = { padding, padding_x, padding_y, color }`（**出现即启用**，各键可省）：`padding` 为水平/垂直同值的内边距相对字号比例（缺省 `0.35`），`padding_x` / `padding_y` 分别覆盖水平/垂直内边距（可与 `padding` 基底混合），`color` 为背景颜色（CSS 颜色，如 `rgba(0,0,0,0.5)` 半透明黑，或 `#00000080`，缺省 `"rgba(0, 0, 0, 0.5)"`）。透明度已按 box 双层叠加效应做平方根校正，配置值即最终视觉效果。开启后阴影/描边配置被忽略（背景替代其可读性作用） |
 
 ### `[preview]`
@@ -156,13 +176,14 @@ DeepSeek 翻译为简体中文。使用结构化输出（`json_object` 模式）
 
 ## presets.toml
 
-样式预设库：每个 `[段名]` 是一个命名预设，字段与 `[style]` 一致（`preset = "段名"` 引用）。内置示例（可自由增删改）：
+样式预设库：每个 `[段名]` 是一个命名预设，字段与 `[style]` 一致（`preset = "段名"` 引用）。预设是「显示角色样式类」：只描述 `primary`（主行）与 `secondary`（副行）两个角色的视觉属性，**不含语言码**——语言码在 `config.toml [style]` 配置，同一套预设可套用任意语言组合。内置示例（可自由增删改）：
 
 - `[default]`：默认样式（白字黑描边、双语、微软雅黑系）
-- `[plex]`：`extends = "default"`，中文用 IBM Plex Sans SC 中等字重，英文用 IBM Plex Sans 真斜体 + 蓝色
-- `[plex_yellow]`：`extends = "plex"`，仅把英文颜色改为黄色
-- `[cinema]`：`extends = "default"`，单语、中文为主、宋体 + 真斜体
-- `[dianshiju]`：`extends = "default"`，单语、中文为主、Heiti SC 中等字重 + 粗体
+- `[plex]`：`extends = "default"`，主行用 IBM Plex Sans SC 中等字重，副行用 IBM Plex Sans 真斜体 + 蓝色
+- `[plex_yellow]`：`extends = "plex"`，仅把副行颜色改为黄色
+- `[belike]`：`extends = "default"`，单语、红色字幕背景框
+- `[dazhizuo]`：`extends = "default"`，单语、宋体 + 真斜体
+- `[dianshiju]`：`extends = "default"`，单语、Heiti SC 中等字重 + 粗体
 
 ### 预设继承
 
@@ -171,14 +192,14 @@ DeepSeek 翻译为简体中文。使用结构化输出（`json_object` 模式）
 三种覆盖形态：
 
 - **无覆盖**：只写 `extends = "父预设名"`，全用父值
-- **部分覆盖**：继承 + 修改部分键（如 `[plex_yellow]` 只改 `en_color`）
+- **部分覆盖**：继承 + 修改部分键（如 `[plex_yellow]` 只改 `secondary_color`）
 - **全量覆盖**：不写 `extends`，独立定义全部字段
 
 合并优先级：`config.toml [style]` 显式键 > 预设展开（继承链逐层覆盖）> 内置默认。
 
 ### 字体名写法
 
-`zh_font_name` / `en_font_name` 支持三种写法（详见 `[style]` 表）：
+`primary_font_name` / `secondary_font_name` 支持三种写法（详见 `[style]` 表）：
 
 1. **通用家族名**：`sans-serif` / `serif` / `monospace`，不依赖具体安装，渲染时回退系统默认
 2. **变体全名**：如 `"IBM Plex Sans SemiBold"`、`"STHeitiSC-Medium"`（PostScript 名），libass 按字体全名/PostScript 名精确匹配

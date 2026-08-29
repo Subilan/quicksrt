@@ -1,11 +1,11 @@
-"""quicksrt CLI：YouTube 视频 -> 中文硬字幕烧录。
+"""quicksrt CLI：YouTube 视频 -> 硬字幕烧录（语言无关：语言码可任意配置）。
 
 每个环节是独立子命令，产物落盘 work/<video_id>/，支持断点续跑：
   quicksrt download <url>   下载视频
   quicksrt extract          提取 16k 音频
   quicksrt upload           上传 OSS 并生成预签名 URL
-  quicksrt transcribe       阿里云 ASR 转写（英文）
-  quicksrt translate        DeepSeek 翻译为简体中文
+  quicksrt transcribe       ASR 转写（语言取 [asr] language）
+  quicksrt translate        翻译（[translate] source_lang -> target_lang）
   quicksrt srt              生成 SRT 字幕
   quicksrt burn             烧录字幕（libass，不重编码音频）
   quicksrt preview          纯色背景渲染单条字幕 PNG 预览（字幕样式预览；--crop 输出紧贴文字的裁剪图；--example 用内置示例文本，不依赖已有数据；--preset a,b / --all-preset 批量样式预览）
@@ -33,7 +33,7 @@ from .steps import transcribe as transcribe_step
 from .steps import translate as translate_step
 from .steps import upload as upload_step
 
-app = typer.Typer(help="quicksrt: YouTube 视频下载 -> ASR -> 翻译 -> 烧录中文硬字幕", no_args_is_help=True)
+app = typer.Typer(help="quicksrt: YouTube 视频下载 -> ASR -> 翻译 -> 烧录硬字幕", no_args_is_help=True)
 
 
 @app.callback()
@@ -116,7 +116,7 @@ def transcribe(
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     force: bool = typer.Option(False, "--force", "-f"),
 ):
-    """阿里云 ASR 转写（英文），产出 segments_en.json"""
+    """阿里云 ASR 转写（语言取 [asr] language），产出 segments_<语言码>.json"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
@@ -132,7 +132,7 @@ def translate(
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     force: bool = typer.Option(False, "--force", "-f"),
 ):
-    """DeepSeek 翻译为简体中文，产出 segments_zh.json"""
+    """翻译（[translate] source_lang -> target_lang），产出 segments_<目标语言码>.json"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
@@ -148,7 +148,7 @@ def srt(
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     force: bool = typer.Option(False, "--force", "-f"),
 ):
-    """由中文 segments 生成规范化 subs.srt（refined.json 存在时输出双语）"""
+    """由目标语言 segments 生成规范化 subs.srt（refined.json 存在时输出双语）"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
@@ -164,7 +164,7 @@ def refine(
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     force: bool = typer.Option(False, "--force", "-f"),
 ):
-    """显示层后处理：拆句/标点/接缝优化，产出 refined.json（双语）"""
+    """显示层后处理：拆句/标点/接缝优化，产出 refined.json（双语，字段为语言码）"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)

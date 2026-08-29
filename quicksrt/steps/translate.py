@@ -1,8 +1,10 @@
-"""translate：DeepSeek 分批翻译英文 segments 为简体中文。
+"""translate：分批翻译源语言 segments 为目标语言。
 
 每批独立落盘 work/<id>/batches/tr_NNNN.json，支持细粒度断点续跑。
 结构化输出：pydantic 模型一次 model_validate_json 完成解析、结构校验与逐条校验，配合 json_object 模式约束返回为合法 JSON；
 批次并行提交（max_concurrency 可配）；HTTP 层对 429/5xx 退避重试。
+语言方向：[translate] source_lang（缺省 [asr] language）→ target_lang；
+提示词：prompt_template 可完全自定义（占位符 {source_lang}/{target_lang}/{source}/{target}），缺省用内置模板。
 上下文：config 的 context_template 模板（占位符取 meta.json 字段）渲染为背景信息注入 system prompt。
 """
 
@@ -38,18 +40,67 @@ class TranslationResponse(BaseModel):
     translations: list[TranslationItem]
 
 
-# ---------- 提示词 ----------
+# ---------- 提示词（语言无关：模板 + 语言名表，可完全自定义） ----------
 
-BASE_SYSTEM_PROMPT = (
-    "你是专业的字幕翻译引擎。用户会提供一段 JSON 数组，每个元素是 {\"id\": 数字, \"text\": 英文字幕}。"
-    "请将每条 text 翻译成简体中文。硬性要求：\n"
+# 内置语言名表：语言码 -> 语言名（提示词用）。未知语言码回退用语言码本身。
+LANG_NAMES = {
+    "en": "English",
+    "zh": "简体中文",
+    "zh-cn": "简体中文",
+    "zh-tw": "繁體中文",
+    "ja": "日本語",
+    "ko": "한국어",
+    "fr": "Français",
+    "de": "Deutsch",
+    "es": "Español",
+    "it": "Italiano",
+    "pt": "Português",
+    "ru": "Русский",
+    "ar": "العربية",
+    "hi": "हिन्दी",
+    "th": "ไทย",
+    "vi": "Tiếng Việt",
+    "id": "Bahasa Indonesia",
+    "tr": "Türkçe",
+    "nl": "Nederlands",
+    "pl": "Polski",
+    "uk": "Українська",
+}
+
+
+def lang_name(code: str) -> str:
+    """语言码 -> 语言名（内置表查询，未知回退用语言码本身）。"""
+    c = code.strip().lower()
+    return LANG_NAMES.get(c, code.strip())
+
+
+DEFAULT_PROMPT_TEMPLATE = (
+    "你是专业的字幕翻译引擎。用户会提供一段 JSON 数组，每个元素是 {{\"id\": 数字, \"text\": {source_lang}字幕}}。"
+    "请将每条 text 翻译成{target_lang}。硬性要求：\n"
     "1. 输出与输入条目数完全一致，逐条对应，严禁合并、拆分、遗漏或改变顺序；\n"
     "2. 每条译文都要放在与输入相同的 id 下；\n"
     "3. 译文自然口语化，保留标点，长度不要超过原文的 1.5 倍；\n"
-    "4. 只输出一个 JSON 对象，格式为 {\"translations\": [{\"id\": 数字, \"text\": \"译文\"}, ...]}。\n"
-    "   样例输出: {\"translations\": [{\"id\": 1, \"text\": \"欢迎回来。\"}]}\n"
+    "4. 只输出一个 JSON 对象，格式为 {{\"translations\": [{{\"id\": 数字, \"text\": \"译文\"}}, ...]}}。\n"
+    "   样例输出: {{\"translations\": [{{\"id\": 1, \"text\": \"<译文>\"}}]}}\n"
     "   不要输出任何其他内容。"
 )
+
+_PLACEHOLDERS = ("{source_lang}", "{target_lang}", "{source}", "{target}")
+
+
+def render_prompt_template(template: str, source: str, target: str) -> str:
+    """渲染翻译提示词模板：替换语言占位符（先长后短，避免 {source} 吃掉 {source_lang}），
+    模板中其余字面花括号原样保留。"""
+    repl = {
+        "{source_lang}": lang_name(source),
+        "{target_lang}": lang_name(target),
+        "{source}": source,
+        "{target}": target,
+    }
+    for k in _PLACEHOLDERS:
+        template = template.replace(k, repl[k])
+    return template
+
 
 _CONTEXT_MAX_LEN = 1500  # 单个上下文变量渲染上限，防止简介过长撑爆 prompt
 
@@ -72,10 +123,9 @@ def _render_context(template: str, meta: dict) -> str:
     return template.format_map(_ContextMap({k: clip(v) for k, v in meta.items()}))
 
 
-def _system_prompt(context: str) -> str:
+def _system_prompt(prompt: str, context: str) -> str:
     if not context:
-        return BASE_SYSTEM_PROMPT
-    prompt = BASE_SYSTEM_PROMPT
+        return prompt
     return (
         prompt
         + "\n\n<video_context>\n"
@@ -147,9 +197,9 @@ def _parse_batch(content: str) -> list[dict]:
     return [it.model_dump() for it in resp.translations]
 
 
-def _build_messages(batch: list[dict], context: str) -> list[dict]:
+def _build_messages(batch: list[dict], prompt: str, context: str) -> list[dict]:
     return [
-        {"role": "system", "content": _system_prompt(context)},
+        {"role": "system", "content": _system_prompt(prompt, context)},
         {"role": "user", "content": json.dumps(batch, ensure_ascii=False)},
     ]
 
@@ -161,14 +211,14 @@ def _estimate_max_tokens(batch: list[dict]) -> int:
 
 
 def _call_deepseek(
-    api_key: str, cfg: dict, batch: list[dict], context: str, log: logging.Logger
+    api_key: str, cfg: dict, batch: list[dict], prompt: str, context: str, log: logging.Logger
 ) -> list[dict]:
     content = _chat(
         api_key,
         cfg["base_url"],
         cfg["model"],
         float(cfg.get("temperature", 0.3)),
-        _build_messages(batch, context),
+        _build_messages(batch, prompt, context),
         log,
         _estimate_max_tokens(batch),
     )
@@ -176,7 +226,7 @@ def _call_deepseek(
 
 
 def translate_batch(
-    api_key: str, cfg: dict, batch: list[dict], log: logging.Logger, retries: int, context: str
+    api_key: str, cfg: dict, batch: list[dict], log: logging.Logger, retries: int, prompt: str, context: str
 ) -> list[dict]:
     expected_ids = {b["id"] for b in batch}
     id_to_item = {b["id"]: b for b in batch}
@@ -184,7 +234,7 @@ def translate_batch(
     out: list[dict] = []
     for attempt in range(1, retries + 1):
         try:
-            out = _call_deepseek(api_key, cfg, batch, context, log)
+            out = _call_deepseek(api_key, cfg, batch, prompt, context, log)
             out_ids = {o["id"] for o in out}
             if out_ids != expected_ids:
                 raise RuntimeError(
@@ -203,7 +253,7 @@ def translate_batch(
     log.warning("[translate] 批次重试 %d 次仍失败，对缺失的 %d 条逐条翻译: %s", retries, len(missing), missing)
     for mid in missing:
         try:
-            single = _call_deepseek(api_key, cfg, [id_to_item[mid]], context, log)
+            single = _call_deepseek(api_key, cfg, [id_to_item[mid]], prompt, context, log)
             out.extend(single)
         except Exception as e:  # noqa: BLE001
             log.warning("[translate] 单条翻译失败 id=%d，保留原文: %s", mid, e)
@@ -234,21 +284,28 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> list[Se
     if not api_key:
         raise RuntimeError("缺少 DEEPSEEK_API_KEY 环境变量")
 
-    en_path = workdir / "segments_en.json"
-    zh_path = workdir / "segments_zh.json"
-    if not en_path.exists():
-        raise FileNotFoundError(f"缺少 {en_path.name}（先执行 transcribe）")
+    source = cfg.translate_source_lang()
+    target = cfg.target_lang()
+    src_path = workdir / f"segments_{source}.json"
+    tgt_path = workdir / f"segments_{target}.json"
+    if not src_path.exists():
+        raise FileNotFoundError(f"缺少 {src_path.name}（先执行 transcribe）")
 
+    template = tr_cfg.get("prompt_template") or DEFAULT_PROMPT_TEMPLATE
+    prompt = render_prompt_template(template, source, target)
     seg_key = {
         "model": tr_cfg["model"],
         "temperature": tr_cfg.get("temperature", 0.3),
+        "source_lang": source,
+        "target_lang": target,
+        "prompt_template": template,
         "context_template": tr_cfg.get("context_template", ""),
     }
-    if not force and util.step_done(meta, STEP, translate=seg_key) and zh_path.exists():
+    if not force and util.step_done(meta, STEP, translate=seg_key) and tgt_path.exists():
         log.info("[translate] 已完成，跳过")
-        return load_segments(zh_path)
+        return load_segments(tgt_path)
 
-    segments = load_segments(en_path)
+    segments = load_segments(src_path)
     batches = _batches(segments, int(tr_cfg.get("batch_max_chars", 3000)))
     batch_dir = workdir / "batches"
     batch_dir.mkdir(parents=True, exist_ok=True)
@@ -274,7 +331,7 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> list[Se
         log.info("[translate] 待翻译 %d 批，并发 %d", len(pending), max_workers)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {
-                pool.submit(translate_batch, api_key, tr_cfg, batch, log, retries, context): (idx, batch)
+                pool.submit(translate_batch, api_key, tr_cfg, batch, log, retries, prompt, context): (idx, batch)
                 for idx, batch in pending
             }
             for fut in as_completed(futures):
@@ -296,7 +353,7 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> list[Se
             text = s.text
         translated.append(Segment(id=s.id, start=s.start, end=s.end, text=text.strip(), words=s.words))
 
-    save_segments(zh_path, translated)
+    save_segments(tgt_path, translated)
     meta.update(
         {
             "translate": seg_key,
@@ -304,5 +361,5 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> list[Se
         }
     )
     util.save_meta(workdir, meta)
-    log.info("[translate] 完成: %d 条", len(translated))
+    log.info("[translate] 完成: %d 条 (%s -> %s)", len(translated), source, target)
     return translated

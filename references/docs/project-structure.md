@@ -43,11 +43,11 @@ quicksrt/
 | `meta.json` | 各环节 | **元数据与环节状态中心**，见下文 |
 | `asr_task.json` | transcribe | 转写任务断点：`{task_id, model}`，提交任务后落盘；轮询完成、结果下载后删除 |
 | `asr_raw.json` | transcribe | 阿里云返回的原始识别结果（逐句 + 字级时间戳，毫秒） |
-| `segments_en.json` | transcribe | 英文 segments，统一格式（秒级时间戳），下游唯一英文数据源 |
-| `segments_zh.json` | translate | 中文 segments，与英文按 id 一一对应 |
+| `segments_<源语言码>.json` | transcribe | ASR segments（如 `segments_en.json`），统一格式（秒级时间戳），语言码取 `[asr] language` |
+| `segments_<目标语言码>.json` | translate | 翻译 segments（如 `segments_zh.json`），语言码取 `[translate] target_lang`，与源语言按 id 一一对应 |
 | `batches/tr_*.json` | translate | 翻译批次缓存（每批一个文件），支持细粒度断点续跑：重跑只翻译缺失批次 |
-| `refined.json` | refine | 双语条目：`[{id, src_id, start, end, zh, en}]`，拆句/标点/接缝已处理；`zh`/`en` 中可含 `\n` 表示行内换行。**srt（双语）与 burn/preview 的实际数据源** |
-| `subs.srt` | srt | 规范化 SRT（refined.json 存在时输出双语：中文在上、英文在下） |
+| `refined.json` | refine | 双语条目：`[{id, src_id, start, end, <源语言码>: text, <目标语言码>: text}]`，字段 key 即语言码；拆句/标点/接缝已处理，文本可含 `\n` 表示行内换行。**srt（双语）与 burn/preview 的实际数据源** |
+| `subs.srt` | srt | 规范化 SRT（refined.json 存在时输出双语：主语言在上、副语言在下，顺序由 `[style] primary_lang`/`secondary_lang` 决定） |
 | `subs.ass` | burn | 按样式配置生成的 ASS（中间产物，调试用） |
 | `preview.ass` / `preview_crop.ass` | preview | 预览用的临时 ASS |
 | `.oss_upload/` | upload | OSS 分片上传断点（重传时跳过已上传分片） |
@@ -64,8 +64,8 @@ quicksrt/
 | `url` | download | 原始链接 |
 | `duration` | download | 视频时长（秒） |
 | `audio_url` | upload | OSS 预签名 URL（ASR 拉取用） |
-| `asr` | transcribe | `{model, language, provider}`，用于判断断点是否过期（换模型后重跑） |
-| `translate` | translate | `{model, temperature, context_template}`，配置变更后重译 |
+| `asr` | transcribe | `{model, language, provider}`，language 即源语言码，用于判断断点是否过期（换模型后重跑） |
+| `translate` | translate | `{model, temperature, source_lang, target_lang, prompt_template, context_template}`，语言方向/模板变更后重译 |
 | `refine` | refine | refine 配置快照，配置变更后自动重跑 |
 | `burn` | burn | 烧录配置快照 `{encoder, crf, preset, style}`，样式/参数变更后自动重烧 |
 | `steps` | 各环节 | 环节状态表：`{"download": "done", "extract": "done", ...}`。键存在且值为 `"done"` 表示该环节完成；缺失或为 `null` 表示未完成/已重置 |
@@ -75,7 +75,7 @@ quicksrt/
 每个环节开始前检查 `steps[本环节] == "done"` 且关键参数未变（`util.step_done`），满足则跳过。参数校验按环节不同：
 
 - transcribe：检查 `meta.asr.model` 与当前配置一致（换模型自动重转）
-- translate：按 `batches/` 缓存，缺哪批翻哪批；context_template 变更会触发重译
+- translate：按 `batches/` 缓存，缺哪批翻哪批；source/target 语言、prompt/context 模板变更会触发重译
 - refine / burn：保存配置快照，配置变更自动重跑
 - 其余环节：只检查 `steps` 状态与产物文件是否存在
 

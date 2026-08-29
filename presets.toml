@@ -1,30 +1,31 @@
 # 样式预设：每段一个命名预设（段名 = 预设名），字段与 config.toml 的 [style] 一致。
+# 预设是「显示角色样式类」：只描述 primary（主行/在上/大字号）与 secondary（副行/在下/小字号）
+# 两个角色的视觉属性，与具体语言完全无关；语言码（primary_lang/secondary_lang）是实例化数据，
+# 在 config.toml [style] 中配置，任意语言组合可套用同一套预设。
 # config.toml [style] 中写 preset = "预设名" 引用，预设为基底、[style] 显式键覆盖。
 # 预设之间可相互继承：预设内写 extends = "父预设名"，以父预设为基底、自身键覆盖，
 # 支持链式继承（A 继承 B 继承 C）；循环继承或引用不存在的预设会报错。
 # 三种覆盖形态：无覆盖（只写 extends 引用，全用父值）/ 部分覆盖（继承 + 改部分键）/ 全量覆盖（不写 extends，独立定义）。
 
 [default]
-# 中文字体与整体字号/边距
-zh_font_name = "微软雅黑"
+# 主行字体与整体字号/边距
+primary_font_name = "微软雅黑"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
-zh_color = "#FFFFFF"
+primary_color = "#FFFFFF"
 outline_color = "#000000"
 outline = 2
 shadow = 1
 # 语言模式：bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
 mode = "bilingual"
-# 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
-primary_lang = "zh"
-# 中文假粗体/假斜体（不依赖字体变体；精确字重/斜体请填 zh_font_name 变体全名）
-zh_bold = false
-zh_italic = false
-# 英文独立字体与样式（英文做主/副语言均生效，字号跟随主/副位置）
-en_font_name = "微软雅黑"
-en_font_ratio = 0.6
-en_bold = false
-en_italic = false
+# 主行假粗体/假斜体（不依赖字体变体；精确字重/斜体请填 primary_font_name 变体全名）
+primary_bold = false
+primary_italic = false
+# 副行字体与样式（副行字号 = 主字号 × secondary_font_ratio）
+secondary_font_name = "微软雅黑"
+secondary_font_ratio = 0.6
+secondary_bold = false
+secondary_italic = false
 # 字幕背景：libass BorderStyle=3 box，背景由渲染器按文本实际渲染范围绘制（严格贴合文本，
 # 非全宽）；写 bg = { padding, padding_x, padding_y, color } 即启用（出现即开，不写或 bg = false 禁用），
 # padding 为水平/垂直同值的内边距相对字号比例（缺省 0.35），padding_x/padding_y 分别覆盖水平/垂直，
@@ -33,11 +34,11 @@ en_italic = false
 # 开启后阴影/描边配置被忽略（背景替代其可读性作用），libass 渲染（ffmpeg ass 滤镜）
 bg = false
 
-[simple_zh]
+[belike]
 extends = "default"
-bg = { padding = 0.2 }
+bg = { padding_x = 0.5, padding_y = 0.15, color = '#ff0000' }
 mode = "mono"
-zh_font_name = "Noto Sans SC:style=Medium"
+primary_font_name = "Noto Sans SC:style=Medium"
 shadow = 0
 outline = 0
 
@@ -46,35 +47,35 @@ outline = 0
 extends = "default"
 outline = 0
 shadow = {blur=5, dx=0,dy=2, color="rgba(0,0,0,.3)"}
-zh_font_name = "IBM Plex Sans SC:style=SemiBold"
-# 英文独立字体与样式：直接填斜体变体全名，精确使用真斜体
-en_font_name = "IBM Plex Sans"
-en_italic = true
-# 英文独立颜色（CSS 颜色：rgb()/rgba()/#HEX）
-en_color = "#88caff"
+primary_font_name = "IBM Plex Sans SC:style=SemiBold"
+# 副行字体与样式：直接填斜体变体全名，精确使用真斜体
+secondary_font_name = "IBM Plex Sans"
+secondary_italic = true
+# 副行独立颜色（CSS 颜色：rgb()/rgba()/#HEX）
+secondary_color = "#88caff"
 
 [plex_yellow]
 extends = "plex"
-en_color = "#fffb00"
+secondary_color = "#fffb00"
 
 [dazhizuo]
 extends = "default"
 mode = "mono"
-zh_font_name = "SimSun"
-zh_italic = true
-zh_italic_shear = "-0.3"
+primary_font_name = "SimSun"
+primary_italic = true
+primary_italic_shear = "-0.3"
 outline = 0.7
 
 [dianshiju]
 extends = "default"
 mode = "mono"
-zh_font_name = "Heiti SC:style=Medium"
-zh_bold = true
+primary_font_name = "Heiti SC:style=Medium"
+primary_bold = true
 
 [youzimu]
 extends = "default"
-zh_font_name = "方正正粗黑简体"
-en_font_name = "方正正粗黑简体"
-zh_color = "#00ffd9"
-en_color = "#fff"
-en_font_ratio = 0.5
+primary_font_name = "方正正粗黑简体"
+secondary_font_name = "方正正粗黑简体"
+primary_color = "#00ffd9"
+secondary_color = "#fff"
+secondary_font_ratio = 0.5

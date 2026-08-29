@@ -8,6 +8,13 @@
 不写 preset 则只用 [style]（内置默认）。
 预设之间支持相互继承：预设内写 extends = "父预设名"，以父预设为基底、自身键覆盖，
 支持链式继承（A 继承 B 继承 C），循环继承与引用不存在的预设会报错。
+
+语言模型（language agnostic）：链路用「语言码」标识语言、用「角色」标识职责。
+- 语言码：BCP-47 风格（en/zh/ja/ko…），仅作数据出现于配置、文件名与 refined.json 字段。
+- 角色：source（源语言，[asr] language）→ target（翻译目标，[translate] target_lang）
+  → primary/secondary（显示主/副语言，[style]，缺省分别取 target/source）。
+样式（style/preset）只描述 primary/secondary 两个显示角色的视觉属性，不含语言码，
+任意语言组合可套用同一套样式。
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ model = "qwen3-asr-flash-filetrans"
 region = "cn-beijing"
 # endpoint 留空时按 region + 环境变量 DASHSCOPE_WORKSPACE_ID 自动拼接
 endpoint = ""
+# 源语言（视频原始语言，任意语言码，如 en/zh/ja/ko；传给 ASR 服务）
 language = "en"
 enable_words = true
 enable_itn = false
@@ -56,6 +64,13 @@ batch_max_chars = 3000
 max_retries = 3
 # 并发翻译的批次数量（DeepSeek 限流宽松，默认 4）
 max_concurrency = 4
+# 翻译源语言：缺省取 [asr] language（视频原始语言）
+source_lang = ""
+# 翻译目标语言（任意语言码）
+target_lang = "zh"
+# 翻译提示词模板：占位符 {source_lang}/{target_lang}（语言名）、{source}/{target}（语言码）；
+# 留空用内置预设模板（按语言码查内置语言名表渲染）；自定义时同样支持上述占位符
+prompt_template = ""
 # 翻译上下文模板：占位符取 meta.json 字段（{title} {description} {uploader} {url} 等），缺失渲染为空；留空不附加
 context_template = ""
 
@@ -70,21 +85,29 @@ max_duration = 0
 [refine]
 # 前后接缝优化：相邻字幕间隔小于该值（秒）时，前一条延伸至后一条开始，消除闪烁
 min_gap = 0.35
-# 标点优化：去掉字幕末尾的句号（中文字幕惯例不带句号）
+# 标点优化：去掉字幕末尾的句号（拆句主语言惯例不带句号）
 strip_end_punct = true
-# 拆句优化：单条字幕文本最大长度（字符），超过则在分句标点（，、；）处拆成多条；
+# 拆句优化：单条字幕文本最大长度（字符），超过则在分句标点处拆成多条；
 # 拆出的条目时间按字符数比例从原句时间中分配
 max_chars = 42
-# 是否把空格（半角/全角）也作为中文分句分隔符；不设或 false 则仅在分句标点处拆句
+# 是否把空格（半角/全角）也作为分句分隔符；不设或 false 则仅在分句标点处拆句
 split_on_space = false
+# 拆句规则覆盖（可选，一般不设）：缺省按拆句主语言（显示主语言）从内置语言规则表取
+# （zh/ja/en 预置，未知语言用 Unicode 通用规则）；显式设置后覆盖语言表
+# split_punct = ""    # 分句标点集合，如 "，、；" 或 ".!?;"
+# strip_punct = ""    # 句尾去除的标点集合，如 "。．，、；"
+# break_after = ""    # 行内断行的后缀字符（中文虚词/日文助词），留空则按空格断
 
 [style]
-# 中文主字体（默认 sans-serif：fontconfig 通用家族名，不依赖系统安装的特定字体；可填变体全名精确指定字重/斜体，如 "IBM Plex Sans SemiBold" / "IBM Plex Sans Italic"）
-zh_font_name = "sans-serif"
+# 样式描述的是两个显示角色（primary 主行/在上/大字号，secondary 副行/在下/小字号）的视觉属性，
+# 与语言无关；语言码（primary_lang/secondary_lang）是实例化数据，缺省链见下。
+# 主行字体（默认 sans-serif：fontconfig 通用家族名，不依赖系统安装的特定字体；
+# 可填变体全名精确指定字重/斜体，如 "IBM Plex Sans SemiBold" / "IBM Plex Sans Italic"）
+primary_font_name = "sans-serif"
 font_size_ratio = 0.05
 margin_v_ratio = 0.05
-# 中文主色（CSS 颜色：rgb()/rgba()/#HEX，如 #FFFFFF / rgba(255,255,255,1)）
-zh_color = "#FFFFFF"
+# 主行颜色（CSS 颜色：rgb()/rgba()/#HEX，如 #FFFFFF / rgba(255,255,255,1)）
+primary_color = "#FFFFFF"
 outline_color = "#000000"
 outline = 2
 # 阴影：数字（旧式，dx=dy=偏移、半透明黑、无模糊）或表 { dx, dy, blur, color }
@@ -93,23 +116,25 @@ outline = 2
 shadow = 1
 # 语言模式：bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
 mode = "bilingual"
-# 主语言（在上、大字号）：zh | en（en 时双语为英文在上、中文在下）
-primary_lang = "zh"
-# 中文假粗体/假斜体（不依赖字体变体；精确字重/斜体直接填 zh_font_name 变体全名）
-zh_bold = false
-zh_italic = false
-# 中文假斜体倾角（libass \\fax 剪切值，即剪切角正切：建议范围 -2~2，对应约 ±63°，0 为垂直；
+# 主/副语言（任意语言码，如 zh/en/ja/ko，BCP-47 风格）：
+# 主语言缺省取 [translate] target_lang，副语言缺省取 [asr] language（即视频原始语言）
+primary_lang = ""
+secondary_lang = ""
+# 主行假粗体/假斜体（不依赖字体变体；精确字重/斜体直接填 primary_font_name 变体全名）
+primary_bold = false
+primary_italic = false
+# 主行假斜体倾角（libass \\fax 剪切值，即剪切角正切：建议范围 -2~2，对应约 ±63°，0 为垂直；
 # 超出范围仍可解析但字形严重变形；正数向右倾、负数向左；留空用 libass 默认假斜体，设置后自动关闭 Italic 标志）
-zh_italic_shear = ""
-# 英文独立字体与样式（英文做主/副语言均生效，字号跟随主/副位置）
-en_font_name = "sans-serif"
-en_font_ratio = 0.6
-en_bold = false
-en_italic = false
-# 英文假斜体倾角（同 zh_italic_shear，作用于英文）
-en_italic_shear = ""
-# 英文独立颜色（CSS 颜色：rgb()/rgba()/#HEX）；留空时英文跟随 zh_color
-en_color = ""
+primary_italic_shear = ""
+# 副行字体与样式（副行字号 = 主字号 × secondary_font_ratio）
+secondary_font_name = "sans-serif"
+secondary_font_ratio = 0.6
+secondary_bold = false
+secondary_italic = false
+# 副行假斜体倾角（同 primary_italic_shear，作用于副行）
+secondary_italic_shear = ""
+# 副行独立颜色（CSS 颜色：rgb()/rgba()/#HEX）；留空时副行跟随 primary_color
+secondary_color = ""
 # 字幕背景：libass BorderStyle=3 box，背景由渲染器按文本实际渲染范围绘制（严格贴合文本，
 # 非全宽）；写 bg = { padding, padding_x, padding_y, color } 即启用（出现即开，不写或 bg = false 禁用），
 # padding 为水平/垂直同值的内边距相对字号比例（缺省 0.35），padding_x/padding_y 分别覆盖水平/垂直，
@@ -203,6 +228,40 @@ class Config:
         defaults = dict(self.section("style"))
         defaults.pop("preset", None)
         return {**defaults, **style}
+
+    # ---------- 语言解析（语言码 × 角色） ----------
+    # 缺省链：source（[asr] language）→ target（[translate] target_lang）
+    # → primary（[style] primary_lang 缺省 target）/ secondary（[style] secondary_lang 缺省 source）。
+    # 语言码仅作为数据（配置/文件名/refined.json 字段），样式与语言完全解耦。
+
+    def source_lang(self) -> str:
+        """源语言（视频原始语言，ASR 输入）：[asr] language。"""
+        return str(self.section("asr").get("language") or "en").strip() or "en"
+
+    def target_lang(self) -> str:
+        """翻译目标语言：[translate] target_lang。"""
+        return str(self.section("translate").get("target_lang") or "zh").strip() or "zh"
+
+    def translate_source_lang(self) -> str:
+        """翻译环节读取的源语言：[translate] source_lang 缺省 [asr] language。"""
+        return str(self.section("translate").get("source_lang") or self.source_lang()).strip() \
+            or self.source_lang()
+
+    def primary_lang(self) -> str:
+        """显示主语言：[style] primary_lang 缺省 target_lang。"""
+        v = str(self.section("style").get("primary_lang") or "").strip()
+        return v or self.target_lang()
+
+    def secondary_lang(self) -> str:
+        """显示副语言：[style] secondary_lang 缺省为翻译对中非主语言的那个
+        （primary 缺省为 target 时副为 source；primary 显式设为 source 时副为 target）。"""
+        v = str(self.section("style").get("secondary_lang") or "").strip()
+        if v:
+            return v
+        primary = self.primary_lang()
+        if primary == self.source_lang():
+            return self.target_lang()
+        return self.source_lang()
 
     @property
     def asr_endpoint(self) -> str:

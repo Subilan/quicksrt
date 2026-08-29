@@ -176,7 +176,7 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> list[Se
     if not audio_url:
         raise FileNotFoundError("meta 中没有 audio_url（先执行 upload）")
 
-    seg_path = workdir / "segments_en.json"
+    seg_path = workdir / f"segments_{cfg.source_lang()}.json"
     raw_path = workdir / "asr_raw.json"
     task_path = workdir / "asr_task.json"
 
@@ -217,5 +217,5 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> list[Se
         }
     )
     util.save_meta(workdir, meta)
-    log.info("[transcribe] 完成: %d 条句子", len(segments))
+    log.info("[transcribe] 完成: %d 条句子 -> %s", len(segments), seg_path.name)
     return segments

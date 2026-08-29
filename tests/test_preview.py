@@ -93,11 +93,17 @@ def test_run_builds_ass_and_calls_ffmpeg(tmp_path, monkeypatch):
     (workdir / "meta.json").write_text(json.dumps({"title": "My Video"}), encoding="utf-8")
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "primary_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):
@@ -129,6 +135,12 @@ def test_run_custom_background(tmp_path, monkeypatch):
     (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
@@ -162,6 +174,12 @@ def test_run_preset_passed_to_style_config(tmp_path, monkeypatch):
     seen = {}
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
@@ -183,6 +201,12 @@ def test_run_background_override(tmp_path, monkeypatch):
     (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
@@ -204,6 +228,12 @@ def test_run_without_refined(tmp_path):
     workdir.mkdir()
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         def section(self, name):
             return {}
 
@@ -233,11 +263,17 @@ def test_run_crop(tmp_path, monkeypatch):
     (workdir / "meta.json").write_text(json.dumps({"title": "My Video"}), encoding="utf-8")
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "primary_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):
@@ -285,11 +321,17 @@ def test_run_crop_with_background(tmp_path, monkeypatch):
     (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "primary_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):
@@ -326,6 +368,12 @@ def test_run_crop_with_index(tmp_path, monkeypatch):
     (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
@@ -374,11 +422,17 @@ def test_run_example(tmp_path, monkeypatch):
     monkeypatch.setattr(preview.util, "run_cmd", lambda cmd, log, timeout=None: calls.append(cmd))
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "primary_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):
@@ -399,6 +453,12 @@ def test_run_example_with_res(tmp_path, monkeypatch):
     monkeypatch.setattr(preview.util, "run_cmd", lambda cmd, log, timeout=None: calls.append(cmd))
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
@@ -429,11 +489,17 @@ def test_run_example_crop(tmp_path, monkeypatch):
     monkeypatch.setattr(preview.util, "run_cmd", fake_run_cmd)
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "primary_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):
@@ -452,6 +518,12 @@ def test_run_example_preset(tmp_path, monkeypatch):
     monkeypatch.setattr(preview.util, "run_cmd", lambda cmd, log, timeout=None: None)
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
@@ -523,11 +595,17 @@ def test_run_preset_in_output_name(tmp_path, monkeypatch):
     (workdir / "meta.json").write_text(json.dumps({"title": "My Video"}), encoding="utf-8")
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "primary_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):
@@ -546,11 +624,17 @@ def test_run_crop_preset_in_output_name(tmp_path, monkeypatch):
     (workdir / "meta.json").write_text(json.dumps({"title": "My Video"}), encoding="utf-8")
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "primary_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):
@@ -575,11 +659,17 @@ def test_run_example_preset_in_output_name(tmp_path, monkeypatch):
     monkeypatch.setattr(preview.util, "run_cmd", lambda cmd, log, timeout=None: None)
 
     class FakeCfg:
+        def primary_lang(self):
+            return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
+
+        def secondary_lang(self):
+            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+
         output_dir = tmp_path / "dist"
 
         def section(self, name):
             if name == "style":
-                return {"mode": "bilingual", "primary_lang": "zh", "zh_font_name": "F"}
+                return {"mode": "bilingual", "primary_lang": "zh", "primary_font_name": "F"}
             return {"background": "black"}
 
         def style_config(self, preset=None):

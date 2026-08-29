@@ -4,10 +4,13 @@
 CRF 质量模式 + 慢速 preset，尽量降低二次编码损失。
 优先使用 refined.json（双语 ASS），否则回退到 subs.srt 单语。
 
-语言模式（[style] 配置）：
+语言模式（[style] 配置，语言无关）：
 - mode: bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
-- primary_lang: zh | en（主语言，大字号在上）
-中文样式用 zh_font_name/zh_bold/zh_italic/zh_italic_shear，英文用 en_font_name/en_bold/en_italic/en_italic_shear；
+- primary_lang / secondary_lang: 任意语言码（BCP-47 风格，缺省链见 config.py），
+  从 refined.json 中按语言码取文本；refined.json 字段即语言码（源/目标语言）
+样式按显示角色（primary 主行/secondary 副行）配置，与语言无关：
+primary_font_name/primary_color/primary_bold/primary_italic/primary_italic_shear、
+secondary_font_name/secondary_font_ratio/secondary_bold/secondary_italic/…；
 字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）精确指定字重/斜体，
 也支持 fontconfig 模式语法 "Family:style=Medium,weight=500"（libass 按字体全名精确匹配）。
 
@@ -143,8 +146,8 @@ def _style_block(
     因此两者写同一颜色、Shadow 固定 1（偏移副本与本体几乎重叠，同色不可见）；
     此模式下阴影/描边配置被忽略（背景替代其可读性作用）。
     """
-    font = font_name or cfg_style.get("zh_font_name", "sans-serif")
-    color = util.parse_ass_color(color or cfg_style.get("zh_color", "#FFFFFF"))
+    font = font_name or cfg_style.get("primary_font_name", "sans-serif")
+    color = util.parse_ass_color(color or cfg_style.get("primary_color", "#FFFFFF"))
     shadow = _parse_shadow(cfg_style.get("shadow"))
     if box:
         box_color = box_color or _parse_bg(cfg_style).color
@@ -166,15 +169,20 @@ def _style_block(
     )
 
 
-def _style_mode(cfg_style: dict) -> tuple[str, str]:
-    """解析语言模式 (mode, primary_lang)，兼容旧版 bilingual 布尔。"""
+def _style_mode(cfg_style: dict, primary_default: str = "zh", secondary_default: str = "en") -> tuple[str, str, str]:
+    """解析语言模式 (mode, primary_lang, secondary_lang)，返回任意语言码（BCP-47 风格）。
+
+    primary/secondary 优先取 [style]（含预设展开）显式配置，为空时用 defaults
+    （缺省链：primary=目标语言、secondary=源语言，由调用方从 cfg 解析传入）。
+    主副语言相同报错。"""
     mode = str(cfg_style.get("mode", "")).lower()
-    if mode not in ("bilingual", "mono"):
-        mode = "bilingual" if bool(cfg_style.get("bilingual", True)) else "mono"
-    primary = str(cfg_style.get("primary_lang", "zh")).lower()
-    if primary not in ("zh", "en"):
-        primary = "zh"
-    return mode, primary
+    if mode == "":
+        mode = "bilingual"  # 未配置默认双语
+    elif mode not in ("bilingual", "mono"):
+        raise RuntimeError(f"mode 配置非法: {mode!r}（支持 bilingual | mono）")
+    primary = str(cfg_style.get("primary_lang") or primary_default).strip() or primary_default
+    secondary = str(cfg_style.get("secondary_lang") or secondary_default).strip() or secondary_default
+    return mode, primary, secondary
 
 
 @dataclass(frozen=True)
@@ -264,17 +272,17 @@ def _bg_color_parts(bg_color: str) -> tuple[str, str]:
     return "&H" + c[4:10], "&H" + c[2:4]
 
 
-def _lang_color(cfg_style: dict, lang: str) -> str:
-    """某语言的主色（ASS &HAABBGGRR）：en 用 en_color（未设置/留空时回退 zh_color），zh 用 zh_color。"""
-    if lang == "en":
-        return util.parse_ass_color(cfg_style.get("en_color") or cfg_style.get("zh_color", "#FFFFFF"))
-    return util.parse_ass_color(cfg_style.get("zh_color", "#FFFFFF"))
+def _role_color(cfg_style: dict, role: str) -> str:
+    """某显示角色（primary/secondary）的主色（ASS &HAABBGGRR）。
+    secondary 用 secondary_color（未设置/留空时跟随 primary_color），primary 用 primary_color。"""
+    if role == "secondary":
+        return util.parse_ass_color(cfg_style.get("secondary_color") or cfg_style.get("primary_color", "#FFFFFF"))
+    return util.parse_ass_color(cfg_style.get("primary_color", "#FFFFFF"))
 
 
-def _lang_shear(cfg_style: dict, lang: str) -> str | None:
-    """某语言的假斜体倾角（libass \\fax 剪切值）；未设置/留空返回 None。"""
-    key = "en_italic_shear" if lang == "en" else "zh_italic_shear"
-    v = cfg_style.get(key)
+def _role_shear(cfg_style: dict, role: str) -> str | None:
+    """某显示角色的假斜体倾角（libass \\fax 剪切值）；未设置/留空返回 None。"""
+    v = cfg_style.get(f"{role}_italic_shear")
     return v if v not in (None, "") else None
 
 
@@ -301,25 +309,18 @@ def _resolve_font(cfg_font: str, bold: bool, italic: bool) -> tuple[str, bool, b
     return family, bold, italic
 
 
-def _lang_style(cfg_style: dict, lang: str) -> tuple[str, bool, bool]:
-    """某语言的字体系列、粗体、斜体标志（已解析为 ASS 实际字体名）。
+def _role_style(cfg_style: dict, role: str) -> tuple[str, bool, bool]:
+    """某显示角色（primary/secondary）的字体、粗体、斜体标志（已解析为 ASS 实际字体名）。
 
     字体名可填变体全名（如 "IBM Plex Sans SemiBold"/"Italic"）或
     fontconfig 模式（如 "Heiti SC:style=Medium"）精确指定字重/斜体；
-    zh_bold/zh_italic 为假粗体/假斜体（不依赖字体变体）；
-    zh_italic_shear 设置时用 \\fax 剪切自定义倾角（此时 Italic 标志关，避免双重倾斜）。
-    """
-    if lang == "en":
-        font = cfg_style.get("en_font_name") or cfg_style.get("zh_font_name", "sans-serif")
-        bold = bool(cfg_style.get("en_bold", False))
-        italic = bool(cfg_style.get("en_italic", False))
-        if _lang_shear(cfg_style, "en") is not None:
-            italic = False
-        return _resolve_font(font, bold, italic)
-    font = cfg_style.get("zh_font_name", "sans-serif")
-    bold = bool(cfg_style.get("zh_bold", False))
-    italic = bool(cfg_style.get("zh_italic", False))
-    if _lang_shear(cfg_style, "zh") is not None:
+    *_bold/*_italic 为假粗体/假斜体（不依赖字体变体）；
+    *_italic_shear 设置时用 \\fax 剪切自定义倾角（此时 Italic 标志关，避免双重倾斜）。
+    secondary 字体缺省跟随 primary。"""
+    font = cfg_style.get(f"{role}_font_name") or cfg_style.get("primary_font_name", "sans-serif")
+    bold = bool(cfg_style.get(f"{role}_bold", False))
+    italic = bool(cfg_style.get(f"{role}_italic", False))
+    if _role_shear(cfg_style, role) is not None:
         italic = False
     return _resolve_font(font, bold, italic)
 
@@ -343,34 +344,36 @@ def _ensure_font(font: str, ctx: str) -> str:
 
 
 def build_ass_items(items: list[dict], cfg_style: dict, probe: dict,
-                    mode: str = "bilingual", primary_lang: str = "zh") -> str:
+                    mode: str = "bilingual", primary_lang: str = "zh",
+                    secondary_lang: str = "en") -> str:
     """从 refined 条目生成 ASS。
 
     主语言在上（Default，大字号），双语时副语言在下（Secondary，更小字号）；
-    primary_lang 决定主语言是 zh 还是 en，mono 模式只渲染主语言。
-    """
+    primary_lang/secondary_lang 为语言码（refined.json 的字段 key），
+    mono 模式只渲染主语言。"""
     width, height = probe["width"], probe["height"]
     fontsize = max(12, round(height * float(cfg_style.get("font_size_ratio", 0.05))))
     margin_v = round(height * float(cfg_style.get("margin_v_ratio", 0.05)))
     margin_h = round(width * 0.03)
-    en_size = max(10, round(fontsize * float(cfg_style.get("en_font_ratio", 0.6))))
+    secondary_size = max(10, round(fontsize * float(cfg_style.get("secondary_font_ratio", 0.6))))
 
-    secondary_lang = "en" if primary_lang == "zh" else "zh"
-    p_font, p_bold, p_italic = _lang_style(cfg_style, primary_lang)
-    s_font, s_bold, s_italic = _lang_style(cfg_style, secondary_lang)
+    if mode == "bilingual" and primary_lang == secondary_lang:
+        raise RuntimeError(f"主语言与副语言相同: {primary_lang}")
+    p_font, p_bold, p_italic = _role_style(cfg_style, "primary")
+    s_font, s_bold, s_italic = _role_style(cfg_style, "secondary")
     p_font = _ensure_font(p_font, f"primary({primary_lang})")
     s_font = _ensure_font(s_font, f"secondary({secondary_lang})")
-    p_color = _lang_color(cfg_style, primary_lang)
-    s_color = _lang_color(cfg_style, secondary_lang)
-    p_shear = _lang_shear(cfg_style, primary_lang)
-    s_shear = _lang_shear(cfg_style, secondary_lang)
+    p_color = _role_color(cfg_style, "primary")
+    s_color = _role_color(cfg_style, "secondary")
+    p_shear = _role_shear(cfg_style, "primary")
+    s_shear = _role_shear(cfg_style, "secondary")
 
     bg = _parse_bg(cfg_style)
     bg_color = bg.color if bg.enabled else None
     bg_pad_px = bg.padding_x * fontsize if bg.enabled else 0.0
     bg_pad_py = bg.padding_y * fontsize if bg.enabled else 0.0
-    bg_pad_sx = bg.padding_x * en_size if bg.enabled else 0.0
-    bg_pad_sy = bg.padding_y * en_size if bg.enabled else 0.0
+    bg_pad_sx = bg.padding_x * secondary_size if bg.enabled else 0.0
+    bg_pad_sy = bg.padding_y * secondary_size if bg.enabled else 0.0
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -384,13 +387,17 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 {_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", p_font, p_bold, p_italic, color=p_color, box=bg.enabled, box_color=bg_color, box_padding=bg_pad_py)}
 """
     if mode == "bilingual":
-        header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "Secondary", s_font, s_bold, s_italic, color=s_color, box=bg.enabled, box_color=bg_color, box_padding=bg_pad_sy) + "\n"
+        header += _style_block(width, height, cfg_style, secondary_size, margin_v, margin_h, "Secondary", s_font, s_bold, s_italic, color=s_color, box=bg.enabled, box_color=bg_color, box_padding=bg_pad_sy) + "\n"
     header += "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
 
     shadow = _parse_shadow(cfg_style.get("shadow"))
     text_bottom = height - margin_v  # 文本块底（alignment=2 底部定位，\pos 锚点）
     lines = [header]
     for it in items:
+        if primary_lang not in it:
+            raise RuntimeError(f"refined.json 条目缺少主语言 {primary_lang!r} 字段")
+        if mode == "bilingual" and secondary_lang not in it:
+            raise RuntimeError(f"refined.json 条目缺少副语言 {secondary_lang!r} 字段")
         primary = _ass_escape(it[primary_lang]).replace("\n", "\\N")
         if bg.enabled:
             # 背景模式：BorderStyle=3 box 随文本渲染（libass 按实际文本范围绘制），
@@ -456,8 +463,8 @@ def build_ass(srt_path: Path, cfg_style: dict, probe: dict) -> str:
     fontsize = max(12, round(height * float(cfg_style.get("font_size_ratio", 0.05))))
     margin_v = round(height * float(cfg_style.get("margin_v_ratio", 0.05)))
     margin_h = round(width * 0.03)
-    font = cfg_style.get("zh_font_name", _DEFAULT_FONT)
-    font = _ensure_font(_resolve_font(font, False, False)[0], "zh")
+    font = cfg_style.get("primary_font_name", _DEFAULT_FONT)
+    font = _ensure_font(_resolve_font(font, False, False)[0], "primary")
     bg = _parse_bg(cfg_style)
     bg_color = bg.color if bg.enabled else None
     bg_pad_x = bg.padding_x * fontsize if bg.enabled else 0.0
@@ -532,7 +539,7 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
     output = out_dir / f"{title}.mp4"
 
     style_cfg = cfg.style_config()
-    mode, primary_lang = _style_mode(style_cfg)
+    mode, primary_lang, secondary_lang = _style_mode(style_cfg, cfg.primary_lang(), cfg.secondary_lang())
     style_key = dict(style_cfg)
 
     if not force and util.step_done(meta, STEP, style=style_key) and output.exists():
@@ -552,8 +559,8 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
     refined_path = workdir / "refined.json"
     if refined_path.exists():
         items = json.loads(refined_path.read_text(encoding="utf-8"))
-        ass = build_ass_items(items, style_cfg, probe, mode=mode, primary_lang=primary_lang)
-        log.info("[burn] 使用 refined 字幕（%d 条，mode=%s primary=%s）", len(items), mode, primary_lang)
+        ass = build_ass_items(items, style_cfg, probe, mode=mode, primary_lang=primary_lang, secondary_lang=secondary_lang)
+        log.info("[burn] 使用 refined 字幕（%d 条，mode=%s primary=%s secondary=%s）", len(items), mode, primary_lang, secondary_lang)
     else:
         ass = build_ass(srt_path, style_cfg, probe)
     ass_path.write_text(ass, encoding="utf-8")

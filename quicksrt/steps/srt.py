@@ -70,11 +70,12 @@ def render(segments: list[Segment]) -> str:
     return "\n".join(blocks)
 
 
-def render_bilingual(items: list[dict]) -> str:
-    """渲染双语 SRT：中文在上，英文在下（纯文本，样式由播放器/ASS 决定）。"""
+def render_bilingual(items: list[dict], primary: str, secondary: str) -> str:
+    """渲染双语 SRT：主语言在上、副语言在下（纯文本，样式由播放器/ASS 决定）。
+    primary/secondary 为语言码（refined.json 的字段 key）。"""
     blocks = []
     for idx, it in enumerate(items, start=1):
-        text = f"{it['zh']}\n{it['en']}"
+        text = f"{it[primary]}\n{it[secondary]}"
         blocks.append(
             f"{idx}\n{util.fmt_ts(it['start'])} --> {util.fmt_ts(it['end'])}\n{text}\n"
         )
@@ -83,22 +84,26 @@ def render_bilingual(items: list[dict]) -> str:
 
 def run(cfg, workdir: Path, log: logging.Logger, force: bool = False) -> Path:
     meta = util.load_meta(workdir)
-    zh_path = workdir / "segments_zh.json"
+    tgt_lang = cfg.target_lang()
+    tgt_path = workdir / f"segments_{tgt_lang}.json"
     srt_path = workdir / "subs.srt"
     refined_path = workdir / "refined.json"
-    if not zh_path.exists():
-        raise FileNotFoundError(f"缺少 {zh_path.name}（先执行 translate）")
+    if not tgt_path.exists():
+        raise FileNotFoundError(f"缺少 {tgt_path.name}（先执行 translate）")
 
     if not force and util.step_done(meta, STEP) and srt_path.exists():
         log.info("[srt] 已完成，跳过")
         return srt_path
 
     if refined_path.exists():
+        primary, secondary = cfg.primary_lang(), cfg.secondary_lang()
+        if primary == secondary:
+            raise RuntimeError(f"主语言与副语言相同: {primary}")
         items = json.loads(refined_path.read_text(encoding="utf-8"))
-        srt_path.write_text(render_bilingual(items), encoding="utf-8")
-        log.info("[srt] 完成（refine 后双语）: %d 条字幕 -> %s", len(items), srt_path)
+        srt_path.write_text(render_bilingual(items, primary, secondary), encoding="utf-8")
+        log.info("[srt] 完成（refine 后双语 %s/%s）: %d 条字幕 -> %s", primary, secondary, len(items), srt_path)
     else:
-        segments = normalize(load_segments(zh_path), cfg.section("srt"))
+        segments = normalize(load_segments(tgt_path), cfg.section("srt"))
         srt_path.write_text(render(segments), encoding="utf-8")
         log.info("[srt] 完成（原始）: %d 条字幕 -> %s", len(segments), srt_path)
     meta["steps"] = {**meta.get("steps", {}), STEP: "done"}

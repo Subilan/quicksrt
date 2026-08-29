@@ -27,7 +27,8 @@ uv run pytest           # 运行全部单元测试
 | `tests/test_srt.py` | SRT 规范化（时长 clamp、去重叠、断行）与渲染 |
 | `tests/test_config.py` | 配置加载、内置默认填充、presets 展开与继承（链式/循环检测）、显式键覆盖优先级 |
 | `tests/test_util.py` | 时间戳格式化、meta 状态（step_done）、workdir 查找、颜色解析（CSS→ASS）、字体可用性检查与 fontconfig 模式解析 |
-| `tests/test_burn.py` | ASS 时间戳/转义、样式块生成（颜色/粗体/斜体）、语言模式（bilingual/mono/primary_lang）、字体缺失回退、fontconfig 模式转 ASS 字体名、编码器选择 |
+| `tests/test_burn.py` | ASS 时间戳/转义、样式块生成（颜色/粗体/斜体）、角色样式（primary/secondary，与语言无关）、语言码任意组合渲染、字体缺失回退、fontconfig 模式转 ASS 字体名、编码器选择 |
+| `tests/test_refine.py` | 语言规则表（zh/ja/en/未知兜底/覆盖）、拆句/去标点/副语言按比例同步拆、时间分配、多语言 run 集成（字段语言码化、主语言为源/目标校验） |
 | `tests/test_preview.py` | 分辨率解析（预设/auto/非法）、条目选取（--index）、crop 包围盒解析、示例文本（--example）与命令构建 |
 | `tests/test_cli.py` | --example 可选值参数（裸 --example 默认 lorem）的 argv 规范化、--preset/--all-preset 批量渲染与互斥、--display 多图逐个展示与终端兼容性校验（非 iTerm2/tmux 退出） |
 

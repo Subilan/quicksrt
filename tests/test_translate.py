@@ -14,7 +14,9 @@ from quicksrt.steps.translate import (
     _parse_batch,
     _render_context,
     _system_prompt,
-    BASE_SYSTEM_PROMPT,
+    DEFAULT_PROMPT_TEMPLATE,
+    lang_name,
+    render_prompt_template,
     translate_batch,
 )
 
@@ -100,21 +102,56 @@ def test_render_context_empty_template():
     assert _render_context("", {"a": 1}) == ""
 
 
+# ---------- render_prompt_template / lang_name ----------
+
+def test_lang_name_known():
+    assert lang_name("en") == "English"
+    assert lang_name("zh") == "简体中文"
+    assert lang_name("JA") == "日本語"  # 大小写不敏感
+
+
+def test_lang_name_unknown_fallback():
+    assert lang_name("xx") == "xx"
+
+
+def test_render_prompt_template_placeholders():
+    out = render_prompt_template("{source_lang} -> {target_lang} ({source}/{target})", "en", "zh")
+    assert out == "English -> 简体中文 (en/zh)"
+
+
+def test_render_prompt_template_long_first():
+    # {source} 是 {source_lang} 的前缀：替换必须先长后短，不能把 {source_lang} 拆坏
+    out = render_prompt_template("{source_lang}: {source}", "en", "zh")
+    assert out == "English: en"
+
+
+def test_render_prompt_template_keeps_braces():
+    # 模板中其他字面花括号原样保留（如 JSON 结构示例）
+    out = render_prompt_template('输出 {"id": {source}}', "en", "zh")
+    assert out == '输出 {"id": en}'
+
+
+def test_default_prompt_contains_lang_names():
+    out = render_prompt_template(DEFAULT_PROMPT_TEMPLATE, "en", "zh")
+    assert "English字幕" in out and "简体中文" in out
+    assert '{"id": 数字' in out  # JSON 结构样例保留
+
+
 # ---------- _system_prompt / _build_messages ----------
 
 def test_system_prompt_without_context():
-    assert _system_prompt("") == BASE_SYSTEM_PROMPT
+    assert _system_prompt(DEFAULT_PROMPT_TEMPLATE, "") == DEFAULT_PROMPT_TEMPLATE
 
 
 def test_system_prompt_with_context():
-    p = _system_prompt("视频简介")
-    assert p.startswith(BASE_SYSTEM_PROMPT)
+    p = _system_prompt(DEFAULT_PROMPT_TEMPLATE, "视频简介")
+    assert p.startswith(DEFAULT_PROMPT_TEMPLATE)
     assert "<video_context>\n视频简介\n</video_context>" in p
 
 
 def test_build_messages():
-    msgs = _build_messages([{"id": 1, "text": "hi"}], "ctx")
-    assert msgs[0]["role"] == "system" and "ctx" in msgs[0]["content"]
+    msgs = _build_messages([{"id": 1, "text": "hi"}], "prompt", "ctx")
+    assert msgs[0]["role"] == "system" and "prompt" in msgs[0]["content"] and "ctx" in msgs[0]["content"]
     assert msgs[1]["role"] == "user"
     assert json.loads(msgs[1]["content"]) == [{"id": 1, "text": "hi"}]
 
@@ -127,7 +164,7 @@ def _no_sleep(_):
 
 def test_translate_batch_success(monkeypatch):
     monkeypatch.setattr("quicksrt.steps.translate._call_deepseek", lambda *a, **k: [{"id": 1, "text": "译1"}, {"id": 2, "text": "译2"}])
-    out = translate_batch("k", {}, [{"id": 1, "text": "a"}, {"id": 2, "text": "b"}], log, retries=2, context="")
+    out = translate_batch("k", {}, [{"id": 1, "text": "a"}, {"id": 2, "text": "b"}], log, retries=2, prompt="p", context="")
     assert {o["id"] for o in out} == {1, 2}
 
 
@@ -142,20 +179,20 @@ def test_translate_batch_retry_then_success(monkeypatch):
 
     monkeypatch.setattr("quicksrt.steps.translate._call_deepseek", fake)
     monkeypatch.setattr("quicksrt.steps.translate.time.sleep", _no_sleep)
-    out = translate_batch("k", {}, [{"id": 1, "text": "a"}, {"id": 2, "text": "b"}], log, retries=3, context="")
+    out = translate_batch("k", {}, [{"id": 1, "text": "a"}, {"id": 2, "text": "b"}], log, retries=3, prompt="p", context="")
     assert calls["n"] == 2 and len(out) == 2
 
 
 def test_translate_batch_fallback_single(monkeypatch):
     """整批反复失败 -> 对缺失条目逐条翻译成功。"""
-    def fake(api_key, cfg, batch, context, log_):
+    def fake(api_key, cfg, batch, prompt, context, log_):
         if len(batch) == 1:
             return [{"id": batch[0]["id"], "text": "单条译" + str(batch[0]["id"])}]
         raise RuntimeError("整批失败")
 
     monkeypatch.setattr("quicksrt.steps.translate._call_deepseek", fake)
     monkeypatch.setattr("quicksrt.steps.translate.time.sleep", _no_sleep)
-    out = translate_batch("k", {}, [{"id": 1, "text": "a"}, {"id": 2, "text": "b"}], log, retries=2, context="")
+    out = translate_batch("k", {}, [{"id": 1, "text": "a"}, {"id": 2, "text": "b"}], log, retries=2, prompt="p", context="")
     assert {o["id"]: o["text"] for o in out} == {1: "单条译1", 2: "单条译2"}
 
 
@@ -166,13 +203,13 @@ def test_translate_batch_fallback_keep_original(monkeypatch):
 
     monkeypatch.setattr("quicksrt.steps.translate._call_deepseek", fake)
     monkeypatch.setattr("quicksrt.steps.translate.time.sleep", _no_sleep)
-    out = translate_batch("k", {}, [{"id": 1, "text": "original"}], log, retries=2, context="")
+    out = translate_batch("k", {}, [{"id": 1, "text": "original"}], log, retries=2, prompt="p", context="")
     assert out == [{"id": 1, "text": "original"}]
 
 
 def test_translate_batch_unrecoverable(monkeypatch):
     """兜底后仍不完整（单条返回空数组） -> 抛错。"""
-    def fake(api_key, cfg, batch, context, log_):
+    def fake(api_key, cfg, batch, prompt, context, log_):
         if len(batch) == 1:
             return []  # 单条"成功"但空结果，id 补不上
         raise RuntimeError("整批失败")
@@ -180,4 +217,4 @@ def test_translate_batch_unrecoverable(monkeypatch):
     monkeypatch.setattr("quicksrt.steps.translate._call_deepseek", fake)
     monkeypatch.setattr("quicksrt.steps.translate.time.sleep", _no_sleep)
     with pytest.raises(RuntimeError, match="批次最终结果仍不完整"):
-        translate_batch("k", {}, [{"id": 1, "text": "a"}, {"id": 2, "text": "b"}], log, retries=2, context="")
+        translate_batch("k", {}, [{"id": 1, "text": "a"}, {"id": 2, "text": "b"}], log, retries=2, prompt="p", context="")

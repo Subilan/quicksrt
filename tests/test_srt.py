@@ -74,6 +74,16 @@ def test_render():
 
 def test_render_bilingual():
     items = [{"id": 0, "zh": "你好", "en": "hello", "start": 0.0, "end": 1.0}]
-    text = render_bilingual(items)
+    text = render_bilingual(items, "zh", "en")
     assert "你好\nhello" in text
     assert text.startswith("1\n00:00:00,000 --> 00:00:01,000")
+
+
+def test_render_bilingual_any_lang_pair():
+    """任意语言组合：按 primary/secondary 语言码取字段、决定上下顺序。"""
+    items = [{"id": 0, "ja": "こんにちは", "en": "hello", "start": 0.0, "end": 1.0}]
+    text = render_bilingual(items, "ja", "en")
+    assert "こんにちは\nhello" in text
+    # 主副互换：顺序反转
+    text2 = render_bilingual(items, "en", "ja")
+    assert "hello\nこんにちは" in text2

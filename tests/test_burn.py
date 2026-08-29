@@ -8,12 +8,12 @@ from quicksrt.steps.burn import (
     _bg_ass_color,
     _ensure_font,
     _fmt,
-    _lang_color,
-    _lang_shear,
-    _lang_style,
     _parse_bg,
     _parse_shadow,
     _resolve_font,
+    _role_color,
+    _role_shear,
+    _role_style,
     _style_block,
     _style_mode,
     build_ass,
@@ -58,8 +58,8 @@ def test_ass_escape(text, expect):
 
 def test_style_block():
     style = {
-        "zh_font_name": "F", "font_size_ratio": 0.05,
-        "zh_color": "#FFFFFF", "outline_color": "#000000",
+        "primary_font_name": "F", "font_size_ratio": 0.05,
+        "primary_color": "#FFFFFF", "outline_color": "#000000",
         "outline": 2, "shadow": 1,
     }
     s = _style_block(1920, 1080, style, 54, 40, 20)
@@ -69,7 +69,7 @@ def test_style_block():
 
 def test_style_block_css_color():
     """CSS 颜色经统一解析后写入 ASS：rgb()/rgba()/#HEX 均可用。"""
-    style = {"zh_font_name": "F", "zh_color": "rgb(255, 0, 0)",
+    style = {"primary_font_name": "F", "primary_color": "rgb(255, 0, 0)",
              "outline_color": "rgba(0, 255, 0, 1)", "outline": 2, "shadow": 1}
     s = _style_block(1920, 1080, style, 54, 40, 20)
     assert s.startswith("Style: Default,F,54,&H000000FF,&H000000FF,")  # red, BBGGRR
@@ -77,39 +77,46 @@ def test_style_block_css_color():
 
 
 def test_style_block_bold_italic_custom_font():
-    style = {"zh_font_name": "F", "outline": 2, "shadow": 1}
+    style = {"primary_font_name": "F", "outline": 2, "shadow": 1}
     s = _style_block(1920, 1080, style, 54, 40, 20, "Secondary", "EN", True, True)
     assert s.startswith("Style: Secondary,EN,54,")
     assert ",1,1,0,0,100,100" in s
 
 
-# ---------- _style_mode / _lang_style ----------
+# ---------- _style_mode / _role_style ----------
 
 def test_style_mode_defaults():
-    assert _style_mode({}) == ("bilingual", "zh")
+    assert _style_mode({}) == ("bilingual", "zh", "en")
+
+
+def test_style_mode_defaults_passthrough():
+    # defaults 参数承载缺省链（primary=目标语言、secondary=源语言）
+    assert _style_mode({}, "ja", "en") == ("bilingual", "ja", "en")
+    assert _style_mode({"mode": "mono"}, "ko", "ja") == ("mono", "ko", "ja")
 
 
 def test_style_mode_explicit():
-    assert _style_mode({"mode": "mono", "primary_lang": "en"}) == ("mono", "en")
+    assert _style_mode({"mode": "mono", "primary_lang": "en", "secondary_lang": "zh"}) == ("mono", "en", "zh")
 
 
-def test_style_mode_legacy_bilingual_bool():
-    assert _style_mode({"bilingual": True}) == ("bilingual", "zh")
-    assert _style_mode({"bilingual": False}) == ("mono", "zh")
+def test_style_mode_any_lang_code():
+    # 任意语言码（不限于 zh/en）
+    assert _style_mode({"primary_lang": "ko", "secondary_lang": "fr"}) == ("bilingual", "ko", "fr")
 
 
-def test_style_mode_invalid_falls_back():
-    assert _style_mode({"mode": "weird", "primary_lang": "fr"}) == ("bilingual", "zh")
+def test_style_mode_invalid_raises():
+    with pytest.raises(RuntimeError, match="mode 配置非法"):
+        _style_mode({"mode": "weird"})
 
 
-def test_lang_style():
+def test_role_style():
     style = {
-        "zh_font_name": "F1", "zh_bold": True, "zh_italic": False,
-        "en_font_name": "F2", "en_bold": False, "en_italic": True,
+        "primary_font_name": "F1", "primary_bold": True, "primary_italic": False,
+        "secondary_font_name": "F2", "secondary_bold": False, "secondary_italic": True,
     }
-    assert _lang_style(style, "zh") == ("F1", True, False)
-    assert _lang_style(style, "en") == ("F2", False, True)
-    assert _lang_style({}, "en")[0] == "sans-serif"  # en 字体缺省回退主字体
+    assert _role_style(style, "primary") == ("F1", True, False)
+    assert _role_style(style, "secondary") == ("F2", False, True)
+    assert _role_style({}, "secondary")[0] == "sans-serif"  # 副行字体缺省回退主字体
 
 
 # ---------- 字体缺失校验与默认字体回退 ----------
@@ -139,7 +146,7 @@ def test_ensure_font_missing_and_default_missing(caplog, monkeypatch):
 
     monkeypatch.setattr(util, "font_available", lambda name: False)
     with caplog.at_level("WARNING", logger="quicksrt"):
-        assert _ensure_font("GhostFont", "zh") == "GhostFont"  # 默认字体也不存在时保持原名
+        assert _ensure_font("GhostFont", "primary") == "GhostFont"  # 默认字体也不存在时保持原名
     assert len(caplog.records) == 2
 
 
@@ -148,26 +155,26 @@ def test_build_ass_items_font_missing_warns(caplog, monkeypatch):
     import quicksrt.util as util
 
     monkeypatch.setattr(util, "font_available", lambda name: name != "ZH-Font")
-    style = {**_STYLE, "zh_font_name": "ZH-Font"}
+    style = {**_STYLE, "primary_font_name": "ZH-Font"}
     with caplog.at_level("WARNING", logger="quicksrt"):
         ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,sans-serif,54," in ass
     assert "ZH-Font" in caplog.text and "回退到默认字体" in caplog.text
 
 
-def test_lang_shear():
-    assert _lang_shear({}, "zh") is None
-    assert _lang_shear({"zh_italic_shear": ""}, "zh") is None
-    assert _lang_shear({"zh_italic_shear": 0.2}, "zh") == 0.2
-    assert _lang_shear({"en_italic_shear": "-0.15"}, "en") == "-0.15"
+def test_role_shear():
+    assert _role_shear({}, "primary") is None
+    assert _role_shear({"primary_italic_shear": ""}, "primary") is None
+    assert _role_shear({"primary_italic_shear": 0.2}, "primary") == 0.2
+    assert _role_shear({"secondary_italic_shear": "-0.15"}, "secondary") == "-0.15"
 
 
-def test_lang_style_shear_disables_italic_flag():
+def test_role_style_shear_disables_italic_flag():
     """设置 italic_shear 时用 \\fax 剪切，Italic 标志关闭（避免双重倾斜）。"""
-    style = {"zh_font_name": "F", "zh_italic": True, "zh_italic_shear": 0.2}
-    assert _lang_style(style, "zh") == ("F", False, False)
-    style_en = {"en_font_name": "F2", "en_italic": True, "en_italic_shear": "-0.1"}
-    assert _lang_style(style_en, "en") == ("F2", False, False)
+    style = {"primary_font_name": "F", "primary_italic": True, "primary_italic_shear": 0.2}
+    assert _role_style(style, "primary") == ("F", False, False)
+    style_sec = {"secondary_font_name": "F2", "secondary_italic": True, "secondary_italic_shear": "-0.1"}
+    assert _role_style(style_sec, "secondary") == ("F2", False, False)
 
 
 # ---------- 字体名解析（fontconfig 模式 -> ASS 字体名） ----------
@@ -201,7 +208,7 @@ def test_resolve_font_pattern_weight_slant_flags():
 
 def test_build_ass_items_font_pattern_in_ass():
     """配置写 fontconfig 模式时，ASS 样式表用 "Family Style" 字体名。"""
-    style = {**_STYLE, "zh_font_name": "Heiti SC:style=Medium"}
+    style = {**_STYLE, "primary_font_name": "Heiti SC:style=Medium"}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,Heiti SC Medium,54," in ass
     assert "Style: Secondary,EN-Font,32," in ass
@@ -236,29 +243,29 @@ def test_resolve_encoder_invalid():
         _resolve_encoder({"encoder": "libx999"}, None, "h264")
 
 
-def test_lang_color():
-    style = {"zh_color": "#FFFFFF", "en_color": "rgba(33, 150, 243, 1)"}
-    assert _lang_color(style, "zh") == "&H00FFFFFF"
-    assert _lang_color(style, "en") == "&H00F39621"
-    # en_color 缺省/留空时英文回退 zh_color
-    assert _lang_color({"zh_color": "#FFFFFF"}, "en") == "&H00FFFFFF"
-    assert _lang_color({"zh_color": "#FFFFFF", "en_color": ""}, "en") == "&H00FFFFFF"
-    assert _lang_color({}, "zh") == "&H00FFFFFF"
+def test_role_color():
+    style = {"primary_color": "#FFFFFF", "secondary_color": "rgba(33, 150, 243, 1)"}
+    assert _role_color(style, "primary") == "&H00FFFFFF"
+    assert _role_color(style, "secondary") == "&H00F39621"
+    # secondary_color 缺省/留空时副行回退 primary_color
+    assert _role_color({"primary_color": "#FFFFFF"}, "secondary") == "&H00FFFFFF"
+    assert _role_color({"primary_color": "#FFFFFF", "secondary_color": ""}, "secondary") == "&H00FFFFFF"
+    assert _role_color({}, "primary") == "&H00FFFFFF"
 
 
-def test_lang_color_hex_alpha():
+def test_role_color_hex_alpha():
     """#RRGGBBAA：末尾 AA 直接作为 ASS alpha 字节（00=不透明，FF=全透明）。"""
-    assert _lang_color({"zh_color": "#000000FF"}, "zh") == "&HFF000000"
-    assert _lang_color({"zh_color": "#00000080"}, "zh") == "&H80000000"
+    assert _role_color({"primary_color": "#000000FF"}, "primary") == "&HFF000000"
+    assert _role_color({"primary_color": "#00000080"}, "primary") == "&H80000000"
 
 
 # ---------- build_ass_items ----------
 
 _STYLE = {
-    "zh_font_name": "ZH-Font", "font_size_ratio": 0.05, "margin_v_ratio": 0.05,
-    "zh_color": "#FFFFFF", "outline_color": "#000000",
+    "primary_font_name": "ZH-Font", "font_size_ratio": 0.05, "margin_v_ratio": 0.05,
+    "primary_color": "#FFFFFF", "outline_color": "#000000",
     "outline": 2, "shadow": 1,
-    "en_font_name": "EN-Font", "en_font_ratio": 0.6,
+    "secondary_font_name": "EN-Font", "secondary_font_ratio": 0.6,
 }
 _ITEMS = [{"id": 0, "src_id": 0, "start": 1.0, "end": 2.0, "zh": "你好", "en": "hello"}]
 _PROBE = {"width": 1920, "height": 1080}
@@ -271,22 +278,23 @@ def test_build_ass_bilingual_zh_primary():
     assert "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,你好\\N{\\rSecondary}hello" in ass
 
 
-def test_build_ass_en_color():
-    """en_color 只作用于英文样式，中文保持 zh_color。"""
-    style = {**_STYLE, "en_color": "#2196F3"}
+def test_build_ass_secondary_color():
+    """secondary_color 只作用于副行样式，主行保持 primary_color。"""
+    style = {**_STYLE, "secondary_color": "#2196F3"}
     ass = build_ass_items(_ITEMS, style, _PROBE)
-    assert "Style: Default,ZH-Font,54,&H00FFFFFF," in ass      # 中文白
-    assert "Style: Secondary,EN-Font,32,&H00F39621," in ass    # 英文蓝（#2196F3 -> BBGGRR F39621）
-    # 英文为主语言时：Default 用 en_color
-    ass_en = build_ass_items(_ITEMS, style, _PROBE, mode="bilingual", primary_lang="en")
-    assert "Style: Default,EN-Font,54,&H00F39621," in ass_en
-    assert "Style: Secondary,ZH-Font,32,&H00FFFFFF," in ass_en
+    assert "Style: Default,ZH-Font,54,&H00FFFFFF," in ass      # 主行白
+    assert "Style: Secondary,EN-Font,32,&H00F39621," in ass    # 副行蓝（#2196F3 -> BBGGRR F39621）
+    # 语言互换（en 为主、zh 为副）时颜色跟随角色而不是语言：主行仍是 primary 色
+    ass_en = build_ass_items(_ITEMS, style, _PROBE, mode="bilingual", primary_lang="en", secondary_lang="zh")
+    assert "Style: Default,ZH-Font,54,&H00FFFFFF," in ass_en   # 主行角色色
+    assert "Style: Secondary,EN-Font,32,&H00F39621," in ass_en # 副行角色色
 
 
 def test_build_ass_bilingual_en_primary():
-    ass = build_ass_items(_ITEMS, _STYLE, _PROBE, mode="bilingual", primary_lang="en")
-    assert "Style: Default,EN-Font,54," in ass
-    assert "Style: Secondary,ZH-Font,32," in ass
+    # 角色样式与语言无关：无论主语言是哪个，Default 恒为 primary 角色样式（ZH-Font）
+    ass = build_ass_items(_ITEMS, _STYLE, _PROBE, mode="bilingual", primary_lang="en", secondary_lang="zh")
+    assert "Style: Default,ZH-Font,54," in ass
+    assert "Style: Secondary,EN-Font,32," in ass
     assert "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,hello\\N{\\rSecondary}你好" in ass
 
 
@@ -298,14 +306,32 @@ def test_build_ass_mono_zh():
 
 
 def test_build_ass_mono_en():
+    # mono 只渲染主语言文本；样式仍是 primary 角色（与语言无关）
     ass = build_ass_items(_ITEMS, _STYLE, _PROBE, mode="mono", primary_lang="en")
-    assert "Style: Default,EN-Font,54," in ass
+    assert "Style: Default,ZH-Font,54," in ass
     assert "Style: Secondary" not in ass
     assert "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,hello" in ass
 
 
+def test_build_ass_any_lang_pair():
+    """任意语言组合（如 ja/en）：按语言码从条目取文本，角色样式生效。"""
+    items = [{"id": 0, "src_id": 0, "start": 1.0, "end": 2.0, "ja": "こんにちは", "en": "hello"}]
+    ass = build_ass_items(items, _STYLE, _PROBE, mode="bilingual", primary_lang="ja", secondary_lang="en")
+    assert "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,こんにちは\\N{\\rSecondary}hello" in ass
+
+
+def test_build_ass_missing_lang_field_raises():
+    with pytest.raises(RuntimeError, match="缺少主语言"):
+        build_ass_items(_ITEMS, _STYLE, _PROBE, mode="bilingual", primary_lang="fr", secondary_lang="en")
+
+
+def test_build_ass_same_lang_raises():
+    with pytest.raises(RuntimeError, match="主语言与副语言相同"):
+        build_ass_items(_ITEMS, _STYLE, _PROBE, mode="bilingual", primary_lang="zh", secondary_lang="zh")
+
+
 def test_build_ass_bold_italic():
-    style = {**_STYLE, "zh_bold": True, "zh_italic": False, "en_bold": False, "en_italic": True}
+    style = {**_STYLE, "primary_bold": True, "primary_italic": False, "secondary_bold": False, "secondary_italic": True}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0" in ass
     assert "Style: Secondary,EN-Font,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,1,0,0" in ass
@@ -313,7 +339,7 @@ def test_build_ass_bold_italic():
 
 def test_build_ass_italic_shear():
     """italic_shear 自定义倾角：Italic 标志关，文本加 {\\fax} 剪切。"""
-    style = {**_STYLE, "zh_italic_shear": 0.2, "en_italic_shear": "-0.15"}
+    style = {**_STYLE, "primary_italic_shear": 0.2, "secondary_italic_shear": "-0.15"}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0" in ass
     assert "Style: Secondary,EN-Font,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0" in ass
@@ -430,7 +456,7 @@ def test_build_ass_bg_mono():
 
 def test_build_ass_bg_with_shear():
     """bg + italic_shear：\\bord 与 \\fax 合并进同一 override。"""
-    style = {**_STYLE, "bg": True, "zh_italic_shear": 0.2, "en_italic_shear": "-0.15"}
+    style = {**_STYLE, "bg": True, "primary_italic_shear": 0.2, "secondary_italic_shear": "-0.15"}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     dl = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,"))
     assert "{\\bord18.9\\fax0.2}你好\\N{\\rSecondary}{\\bord11.2\\fax-0.15}hello" in dl
@@ -509,7 +535,7 @@ def test_parse_shadow_invalid():
 
 def test_style_block_shadow_table_equal_offset():
     """dx==dy 时 Shadow 字段写标量偏移，BackColour 写阴影色。"""
-    style = {"zh_font_name": "F", "outline": 2, "shadow": {"dx": 2, "dy": 2, "color": "#000000FF"}}
+    style = {"primary_font_name": "F", "outline": 2, "shadow": {"dx": 2, "dy": 2, "color": "#000000FF"}}
     s = _style_block(1920, 1080, style, 54, 40, 20)
     assert ",&HFF000000," in s  # BackColour = 不透明黑
     assert ",1,2,2,2,20,20,40,1" in s  # BorderStyle=1, Outline=2, Shadow=2, Alignment=2
@@ -517,14 +543,14 @@ def test_style_block_shadow_table_equal_offset():
 
 def test_style_block_shadow_table_xy_diff():
     """dx≠dy 时 Shadow 字段写 0（内联 \\xshad/\\yshad 控制）。"""
-    style = {"zh_font_name": "F", "outline": 2, "shadow": {"dx": 1, "dy": 3}}
+    style = {"primary_font_name": "F", "outline": 2, "shadow": {"dx": 1, "dy": 3}}
     s = _style_block(1920, 1080, style, 54, 40, 20)
     assert ",1,2,0,2,20,20,40,1" in s
 
 
 def test_style_block_shadow_table_blur():
     """blur>0 双层渲染时 Shadow 字段写 0（阴影层控制）。"""
-    style = {"zh_font_name": "F", "outline": 2, "shadow": {"blur": 2}}
+    style = {"primary_font_name": "F", "outline": 2, "shadow": {"blur": 2}}
     s = _style_block(1920, 1080, style, 54, 40, 20)
     assert ",1,2,0,2,20,20,40,1" in s
 

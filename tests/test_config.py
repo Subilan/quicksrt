@@ -72,12 +72,12 @@ def test_load_dotenv(monkeypatch, tmp_path):
 
 _PRESETS = {
     "default": {
-        "zh_font_name": "Noto Sans CJK SC", "font_size_ratio": 0.05,
-        "mode": "bilingual", "primary_lang": "zh", "zh_bold": False,
+        "primary_font_name": "Noto Sans CJK SC", "font_size_ratio": 0.05,
+        "mode": "bilingual", "primary_lang": "zh", "primary_bold": False,
     },
     "bold_en": {
-        "zh_font_name": "Arial", "primary_lang": "en",
-        "en_font_name": "Arial", "en_bold": True, "en_italic": True,
+        "primary_font_name": "Arial", "primary_lang": "en",
+        "secondary_font_name": "Arial", "secondary_bold": True, "secondary_italic": True,
     },
 }
 
@@ -89,7 +89,7 @@ def test_style_config_without_preset():
 
 def test_style_config_preset_expand():
     cfg = Config({"style": {"preset": "default"}}, None, _PRESETS)
-    assert cfg.style_config()["zh_font_name"] == "Noto Sans CJK SC"
+    assert cfg.style_config()["primary_font_name"] == "Noto Sans CJK SC"
     assert cfg.style_config()["primary_lang"] == "zh"
     assert cfg.style_config()["preset"] == "default"
 
@@ -98,8 +98,8 @@ def test_style_config_preset_overridden_by_style():
     cfg = Config({"style": {"preset": "bold_en", "font_size_ratio": 0.09}}, None, _PRESETS)
     style = cfg.style_config()
     assert style["primary_lang"] == "en"          # 预设展开
-    assert style["en_bold"] is True             # 预设展开
-    assert style["en_italic"] is True           # 预设展开
+    assert style["secondary_bold"] is True             # 预设展开
+    assert style["secondary_italic"] is True           # 预设展开
     assert style["font_size_ratio"] == 0.09       # [style] 显式键覆盖
 
 
@@ -114,7 +114,7 @@ def test_style_config_cli_preset_overrides():
     cfg = Config({"style": {"preset": "default", "font_size_ratio": 0.09}}, None, _PRESETS)
     style = cfg.style_config(preset="bold_en")
     assert style["primary_lang"] == "en"          # 来自 --preset 的 bold_en
-    assert style["en_bold"] is True               # 来自 --preset 的 bold_en
+    assert style["secondary_bold"] is True               # 来自 --preset 的 bold_en
     assert style["font_size_ratio"] == 0.09        # [style] 显式键仍覆盖
     assert style["preset"] == "bold_en"
 
@@ -136,9 +136,9 @@ def test_style_config_cli_preset_missing_raises():
 # ---------- presets.toml 预设间继承 ----------
 
 _INHERIT_PRESETS = {
-    "base": {"zh_font_name": "Serif", "font_size_ratio": 0.05, "mode": "mono", "zh_bold": True},
-    "child": {"extends": "base", "zh_bold": False, "primary_lang": "en"},
-    "grandchild": {"extends": "child", "en_font_name": "Arial"},
+    "base": {"primary_font_name": "Serif", "font_size_ratio": 0.05, "mode": "mono", "primary_bold": True},
+    "child": {"extends": "base", "primary_bold": False, "primary_lang": "en"},
+    "grandchild": {"extends": "child", "secondary_font_name": "Arial"},
     "orphan": {"extends": "nope"},
     "loop_a": {"extends": "loop_b"},
     "loop_b": {"extends": "loop_a"},
@@ -149,9 +149,9 @@ def test_preset_inherit_no_override():
     """子预设只写 extends 引用：全用父预设值（无覆盖）。"""
     cfg = Config({"style": {"preset": "child"}}, None, _INHERIT_PRESETS)
     s = cfg.style_config()
-    assert s["zh_font_name"] == "Serif"
+    assert s["primary_font_name"] == "Serif"
     assert s["mode"] == "mono"
-    assert s["zh_bold"] is False          # 子预设显式键
+    assert s["primary_bold"] is False          # 子预设显式键
     assert s["preset"] == "child"        # [style] 引用键保留
 
 
@@ -159,7 +159,7 @@ def test_preset_inherit_partial_override():
     """子预设继承 + 覆盖部分键：未写字段用父值，显式键覆盖。"""
     cfg = Config({"style": {"preset": "child"}}, None, _INHERIT_PRESETS)
     s = cfg.style_config()
-    assert s["zh_bold"] is False           # 子预设显式覆盖
+    assert s["primary_bold"] is False           # 子预设显式覆盖
     assert s["primary_lang"] == "en"     # 子预设新增键
     assert s["font_size_ratio"] == 0.05    # 未覆盖用父值
     assert s["mode"] == "mono"           # 未覆盖用父值
@@ -169,10 +169,10 @@ def test_preset_inherit_chain():
     """链式继承：grandchild -> child -> base，各层键按覆盖顺序生效。"""
     cfg = Config({"style": {"preset": "grandchild"}}, None, _INHERIT_PRESETS)
     s = cfg.style_config()
-    assert s["zh_font_name"] == "Serif"     # 来自 base
-    assert s["zh_bold"] is False            # 来自 child（覆盖 base）
+    assert s["primary_font_name"] == "Serif"     # 来自 base
+    assert s["primary_bold"] is False            # 来自 child（覆盖 base）
     assert s["primary_lang"] == "en"      # 来自 child
-    assert s["en_font_name"] == "Arial"   # 来自 grandchild
+    assert s["secondary_font_name"] == "Arial"   # 来自 grandchild
     assert s["font_size_ratio"] == 0.05     # 链上定义
     assert "outline" not in s                # 链上未定义（直接构造无内置默认）
     assert s["preset"] == "grandchild"      # 顶层引用键
@@ -194,8 +194,8 @@ def test_preset_inherit_full_override():
     """全量覆盖：不写 extends 即独立预设，与既有行为一致。"""
     cfg = Config({"style": {"preset": "base"}}, None, _INHERIT_PRESETS)
     s = cfg.style_config()
-    assert s["zh_font_name"] == "Serif"
-    assert s["zh_bold"] is True
+    assert s["primary_font_name"] == "Serif"
+    assert s["primary_bold"] is True
     assert "primary_lang" not in s or s.get("primary_lang") != "en"
 
 
@@ -204,8 +204,8 @@ def test_style_config_cli_preset_with_inheritance():
     cfg = Config({"style": {"preset": "base", "font_size_ratio": 0.09}}, None, _INHERIT_PRESETS)
     s = cfg.style_config(preset="child")
     assert s["preset"] == "child"
-    assert s["zh_font_name"] == "Serif"    # 继承自 base
-    assert s["zh_bold"] is False           # 来自 child
+    assert s["primary_font_name"] == "Serif"    # 继承自 base
+    assert s["primary_bold"] is False           # 来自 child
     assert s["font_size_ratio"] == 0.09     # [style] 显式键仍覆盖
 
 
@@ -213,14 +213,14 @@ def test_style_real_load_preset_inherit(monkeypatch, tmp_path):
     """真实 load_config 路径：presets.toml 内部继承生效，[style] 引用键保留。"""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
-        '[base]\nzh_font_name = "Serif"\nzh_bold = true\nmode = "mono"\n'
-        '[plex]\nextends = "base"\nzh_bold = false\nprimary_lang = "en"\n',
+        '[base]\nprimary_font_name = "Serif"\nprimary_bold = true\nmode = "mono"\n'
+        '[plex]\nextends = "base"\nprimary_bold = false\nprimary_lang = "en"\n',
         encoding="utf-8",
     )
     (tmp_path / "config.toml").write_text('[style]\npreset = "plex"\n', encoding="utf-8")
     s = load_config().style_config()
-    assert s["zh_font_name"] == "Serif"   # 继承自 base
-    assert s["zh_bold"] is False          # plex 覆盖
+    assert s["primary_font_name"] == "Serif"   # 继承自 base
+    assert s["primary_bold"] is False          # plex 覆盖
     assert s["primary_lang"] == "en"    # plex 新增
     assert s["mode"] == "mono"          # 继承自 base
     assert s["preset"] == "plex"        # [style] 引用键
@@ -230,18 +230,18 @@ def test_style_real_load_preset_inherit_chain(monkeypatch, tmp_path):
     """真实路径链式继承 + [style] 覆盖：三层覆盖顺序正确。"""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
-        '[base]\nzh_font_name = "Serif"\nmode = "mono"\n'
-        '[mid]\nextends = "base"\nzh_color = "#112233"\n'
-        '[top]\nextends = "mid"\nzh_color = "#445566"\n',
+        '[base]\nprimary_font_name = "Serif"\nmode = "mono"\n'
+        '[mid]\nextends = "base"\nprimary_color = "#112233"\n'
+        '[top]\nextends = "mid"\nprimary_color = "#445566"\n',
         encoding="utf-8",
     )
     (tmp_path / "config.toml").write_text(
-        '[style]\npreset = "top"\nzh_color = "#AABBCC"\n', encoding="utf-8"
+        '[style]\npreset = "top"\nprimary_color = "#AABBCC"\n', encoding="utf-8"
     )
     s = load_config().style_config()
-    assert s["zh_font_name"] == "Serif"     # 来自 base
+    assert s["primary_font_name"] == "Serif"     # 来自 base
     assert s["mode"] == "mono"             # 来自 base
-    assert s["zh_color"] == "#AABBCC"     # [style] 显式键最高
+    assert s["primary_color"] == "#AABBCC"     # [style] 显式键最高
 
 
 def test_preset_inherit_expand_result_clean():
@@ -257,12 +257,12 @@ def test_preset_inherit_expand_result_clean():
 def test_load_config_reads_presets(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
-        "[mypreset]\nzh_font_name = \"Serif\"\nprimary_lang = \"en\"\n",
+        "[mypreset]\nprimary_font_name = \"Serif\"\nprimary_lang = \"en\"\n",
         encoding="utf-8",
     )
     cfg = load_config()
-    assert cfg.presets["mypreset"]["zh_font_name"] == "Serif"
-    assert cfg.style_config()["zh_font_name"] == "sans-serif"  # 未引用时不受影响
+    assert cfg.presets["mypreset"]["primary_font_name"] == "Serif"
+    assert cfg.style_config()["primary_font_name"] == "sans-serif"  # 未引用时不受影响
 
 
 # ---------- style_config 真实 load_config 路径（回归：内置默认不得覆盖 preset） ----------
@@ -272,13 +272,13 @@ def test_style_real_load_preset_no_override(monkeypatch, tmp_path):
     """只写 preset 不覆盖：应全用 preset 值，而非内置默认。"""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
-        '[mypreset]\nzh_font_name = "Serif"\nzh_bold = true\nprimary_lang = "en"\nmode = "mono"\n',
+        '[mypreset]\nprimary_font_name = "Serif"\nprimary_bold = true\nprimary_lang = "en"\nmode = "mono"\n',
         encoding="utf-8",
     )
     (tmp_path / "config.toml").write_text('[style]\npreset = "mypreset"\n', encoding="utf-8")
     s = load_config().style_config()
-    assert s["zh_font_name"] == "Serif"       # 来自 preset，而非内置默认 Noto Sans CJK SC
-    assert s["zh_bold"] is True           # 来自 preset
+    assert s["primary_font_name"] == "Serif"       # 来自 preset，而非内置默认 Noto Sans CJK SC
+    assert s["primary_bold"] is True           # 来自 preset
     assert s["primary_lang"] == "en"       # 来自 preset
     assert s["mode"] == "mono"             # 来自 preset
     assert s["outline"] == 2                # preset 未定义的键补内置默认
@@ -288,15 +288,15 @@ def test_style_real_load_preset_partial_override(monkeypatch, tmp_path):
     """preset + 选择性覆盖：未写字段用 preset 值，显式键覆盖 preset。"""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "presets.toml").write_text(
-        '[mypreset]\nzh_font_name = "Serif"\nzh_bold = true\nprimary_lang = "en"\n',
+        '[mypreset]\nprimary_font_name = "Serif"\nprimary_bold = true\nprimary_lang = "en"\n',
         encoding="utf-8",
     )
     (tmp_path / "config.toml").write_text(
-        '[style]\npreset = "mypreset"\nzh_bold = false\n', encoding="utf-8"
+        '[style]\npreset = "mypreset"\nprimary_bold = false\n', encoding="utf-8"
     )
     s = load_config().style_config()
-    assert s["zh_bold"] is False          # 显式覆盖
-    assert s["zh_font_name"] == "Serif"       # 未写字段用 preset
+    assert s["primary_bold"] is False          # 显式覆盖
+    assert s["primary_font_name"] == "Serif"       # 未写字段用 preset
     assert s["primary_lang"] == "en"
 
 
@@ -309,7 +309,7 @@ def test_style_real_load_no_preset(monkeypatch, tmp_path):
     s = load_config().style_config()
     assert s["mode"] == "mono"
     assert s["primary_lang"] == "en"
-    assert s["zh_font_name"] == "sans-serif"  # 其余补内置默认
+    assert s["primary_font_name"] == "sans-serif"  # 其余补内置默认
 
 
 def test_style_real_load_missing_preset_raises(monkeypatch, tmp_path):
@@ -318,3 +318,57 @@ def test_style_real_load_missing_preset_raises(monkeypatch, tmp_path):
     cfg = load_config()
     with pytest.raises(RuntimeError, match="样式预设不存在: nope"):
         cfg.style_config()
+
+
+# ---------- 语言解析（语言码 × 角色，缺省链） ----------
+
+
+def test_lang_default_chain():
+    """缺省链：source=asr.language -> target=translate.target_lang
+    -> primary 缺省 target、secondary 缺省翻译对中非 primary 的那个。"""
+    cfg = Config({"asr": {"language": "en"}, "translate": {"target_lang": "zh"}, "style": {}})
+    assert cfg.source_lang() == "en"
+    assert cfg.translate_source_lang() == "en"
+    assert cfg.target_lang() == "zh"
+    assert cfg.primary_lang() == "zh"
+    assert cfg.secondary_lang() == "en"
+
+
+def test_lang_any_code_combination():
+    """任意语言组合（如日文源 -> 法文目标）。"""
+    cfg = Config({"asr": {"language": "ja"}, "translate": {"target_lang": "fr"}, "style": {}})
+    assert cfg.primary_lang() == "fr"
+    assert cfg.secondary_lang() == "ja"
+
+
+def test_lang_translate_source_override():
+    """[translate] source_lang 显式覆盖 asr.language。"""
+    cfg = Config({"asr": {"language": "en"}, "translate": {"source_lang": "ja", "target_lang": "zh"}, "style": {}})
+    assert cfg.translate_source_lang() == "ja"
+    assert cfg.source_lang() == "en"  # asr 侧不变
+
+
+def test_lang_style_explicit():
+    """[style] 显式 primary/secondary 覆盖缺省链。"""
+    cfg = Config(
+        {"asr": {"language": "en"}, "translate": {"target_lang": "zh"},
+         "style": {"primary_lang": "ko", "secondary_lang": "ja"}}
+    )
+    assert cfg.primary_lang() == "ko"
+    assert cfg.secondary_lang() == "ja"
+
+
+def test_lang_primary_source_secondary_target():
+    """primary 显式设为源语言时，secondary 缺省自动为翻译对中另一个（目标）。"""
+    cfg = Config({"asr": {"language": "en"}, "translate": {"target_lang": "zh"}, "style": {"primary_lang": "en"}})
+    assert cfg.primary_lang() == "en"
+    assert cfg.secondary_lang() == "zh"
+
+
+def test_lang_defaults_when_absent():
+    """未配置任何语言：source=en、target=zh（内置默认）。"""
+    cfg = Config({})
+    assert cfg.source_lang() == "en"
+    assert cfg.target_lang() == "zh"
+    assert cfg.primary_lang() == "zh"
+    assert cfg.secondary_lang() == "en"

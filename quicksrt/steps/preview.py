@@ -11,7 +11,7 @@ CLI 加 --display 时生成 iTerm2 内联图片转义序列，终端内直接展
 保留纯色背景的 PNG。截取背景色：--background 优先，否则取 [preview] background（默认 black）；
 背景色需与文字颜色有足够差异（--res/--video-id 无效）。
 
---example <lorem|glass|fox>：用内置固定示例文本（中英对照）直接预览，不依赖
+--example <lorem|glass|fox>：用内置固定示例文本（zh/en 双语）直接预览，不依赖
 refined.json 等已有数据、无需 work 目录；裸 --example 默认 lorem。
 lorem 中文用《临江仙·滚滚长江东逝水》上阕（与 lorem ipsum 行宽相当）；glass 对应"我能吞下玻璃而不伤身体"（I can eat glass）；
 fox 对应经典全字母句"quick brown fox"。示例模式无源视频，--res auto 回退 1080p。
@@ -31,7 +31,7 @@ from . import burn
 
 RESOLUTIONS = {"720p": (1280, 720), "1080p": (1920, 1080), "4k": (3840, 2160)}
 
-# --example 内置示例文本（中英对照；lorem 无中文对应，中文用滚滚长江东逝水）
+# --example 内置示例文本（key 为语言码 zh/en，与 refined.json 字段一致）
 EXAMPLES = {
     "lorem": {
         "zh": "滚滚长江东逝水，浪花淘尽英雄。是非成败转头空。青山依旧在，几度夕阳红。",
@@ -164,10 +164,10 @@ def _run_crop(cfg, workdir: Path | None, log: logging.Logger, items: list[dict],
     """
     item = pick_item(items, index)
     style_cfg = cfg.style_config(preset=preset)
-    mode, primary_lang = burn._style_mode(style_cfg)
+    mode, primary_lang, secondary_lang = burn._style_mode(style_cfg, cfg.primary_lang(), cfg.secondary_lang())
     probe = {"width": _CROP_CANVAS_W, "height": _CROP_CANVAS_H}
     ass = burn.build_ass_items(
-        [item], style_cfg, probe, mode=mode, primary_lang=primary_lang
+        [item], style_cfg, probe, mode=mode, primary_lang=primary_lang, secondary_lang=secondary_lang
     )
     scratch = out_dir if out_dir is not None else _scratch_dir(cfg, workdir)
     ass_path = scratch / "preview_crop.ass"
@@ -213,8 +213,8 @@ def _run_crop(cfg, workdir: Path | None, log: logging.Logger, items: list[dict],
     finally:
         raw_png.unlink(missing_ok=True)
     log.info(
-        "[preview] crop（第 %d 条，%dx%d, mode=%s primary=%s）-> %s",
-        index, w, h, mode, primary_lang, output,
+        "[preview] crop（第 %d 条，%dx%d, mode=%s primary=%s secondary=%s）-> %s",
+        index, w, h, mode, primary_lang, secondary_lang, output,
     )
     return output
 
@@ -229,9 +229,9 @@ def _render_frame(cfg, workdir: Path | None, log: logging.Logger, items: list[di
     item = pick_item(items, index)
 
     style_cfg = cfg.style_config(preset=preset)
-    mode, primary_lang = burn._style_mode(style_cfg)
+    mode, primary_lang, secondary_lang = burn._style_mode(style_cfg, cfg.primary_lang(), cfg.secondary_lang())
     ass = burn.build_ass_items(
-        [item], style_cfg, {"width": width, "height": height}, mode=mode, primary_lang=primary_lang
+        [item], style_cfg, {"width": width, "height": height}, mode=mode, primary_lang=primary_lang, secondary_lang=secondary_lang
     )
     scratch = out_dir if out_dir is not None else _scratch_dir(cfg, workdir)
     ass_path = scratch / "preview.ass"
@@ -253,8 +253,8 @@ def _render_frame(cfg, workdir: Path | None, log: logging.Logger, items: list[di
         "-vf", filter_str, "-frames:v", "1", str(output),
     ]
     log.info(
-        "[preview] %s（%dx%d, mode=%s primary=%s, 第 %d 条）-> %s",
-        res_label, width, height, mode, primary_lang, index, output,
+        "[preview] %s（%dx%d, mode=%s primary=%s secondary=%s, 第 %d 条）-> %s",
+        res_label, width, height, mode, primary_lang, secondary_lang, index, output,
     )
     util.run_cmd(cmd, log, timeout=None)
     return output
@@ -264,7 +264,7 @@ def _run_example(cfg, workdir: Path | None, log: logging.Logger, example: str,
                  res: str = "auto", index: int = 1, background: str | None = None,
                  crop: bool = False, preset: str | None = None,
                  out_dir: Path | None = None) -> Path:
-    """用内置固定示例文本（中英对照）渲染预览，不依赖 refined.json 等已有数据。
+    """用内置固定示例文本（zh/en 语言码键）渲染预览，不依赖 refined.json 等已有数据。
 
     示例模式无源视频，--res auto 回退 1080p；workdir 为 None 时 ASS 临时文件写入
     output_dir，渲染后清理。out_dir 非 None 时全部临时文件写入该目录（如 --display）。

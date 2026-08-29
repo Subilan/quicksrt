@@ -1,13 +1,28 @@
 # refine：显示层后处理优化
 
-refine 是 `quicksrt` 管线的可选后处理环节，在**显示层**做四项优化：拆句、标点、前后接缝、双语。它只读取 `segments_en.json` / `segments_zh.json`（ASR 与翻译的原始产物），输出 `work/<video_id>/refined.json`，**不修改任何原始数据**。`srt` / `burn` 环节检测到 `refined.json` 存在时自动使用优化结果，不存在时行为与未引入 refine 前完全一致。
+refine 是 `quicksrt` 管线的可选后处理环节，在**显示层**做四项优化：拆句、标点、前后接缝、双语。它只读取 `segments_<语言码>.json`（ASR 与翻译的原始产物），输出 `work/<video_id>/refined.json`，**不修改任何原始数据**。`srt` / `burn` 环节检测到 `refined.json` 存在时自动使用优化结果，不存在时行为与未引入 refine 前完全一致。
 
 ```
-translate ──> segments_en.json ──┐
-              segments_zh.json ──┼──> refine ──> refined.json ──> srt（双语 SRT）
-                                 │                              └──> burn（双语 ASS）
-                                 └──> srt/burn 原始路径（无 refined.json 时）
+translate ──> segments_<源语言码>.json ──┐
+              segments_<目标语言码>.json ──┼──> refine ──> refined.json ──> srt（双语 SRT）
+                                         │                              └──> burn（双语 ASS）
+                                         └──> srt/burn 原始路径（无 refined.json 时）
 ```
+
+## 语言无关模型
+
+refine 处理一对语言（源/目标，配置见 `[asr] language` 与 `[translate] target_lang`），拆句以**显示主语言**（`[style] primary_lang`，须为源或目标语言之一）为准：主语言文本按该语言的规则表拆句，副语言按字符比例同步拆分，保证双语条目一一对应、时间轴一致。`refined.json` 的字段 key 直接是语言码（如 `{"en": "...", "zh": "..."}` 或 `{"ja": "...", "fr": "..."}`），显示层（srt/burn）按 `[style] primary_lang`/`secondary_lang` 取文本。
+
+拆句规则内置语言表（`quicksrt/steps/refine.py` 的 `LANG_RULES`）：
+
+| 语言 | 分句标点 | 句尾去除 | 行内断行 | 空格分句 |
+| --- | --- | --- | --- | --- |
+| `zh` | `，、；` | `。．，、；` | 中文虚词（的了和但而是…） | 否 |
+| `ja` | `。、，` | `。、，` | 日文助词（はがをにで…） | 否 |
+| `en` | `.!?;` | 无（拉丁系惯例保留句号） | 空格 | 是 |
+| 未知语言 | Unicode 句末标点 | 无 | 空格 | 是 |
+
+规则可被 `[refine]` 的 `split_punct`/`strip_punct`/`break_after` 显式覆盖。
 
 ## 数据流与产物
 
@@ -17,39 +32,38 @@ translate ──> segments_en.json ──┐
 [
   {
     "id": 0,          // refine 后的条目编号（连续，可能多于原始条数）
-    "src_id": 0,      // 来源原始 segment id（segments_zh 中的 id）
+    "src_id": 0,      // 来源原始 segment id（目标语言 segments 中的 id）
     "start": 4.18,    // 秒，浮点
     "end": 8.26,
-    "zh": "字幕中文文本",
-    "en": "English subtitle text"
+    "en": "English subtitle text",
+    "zh": "字幕中文文本"
   }
 ]
 ```
 
-`zh` / `en` 内部可能含 `\n`，表示该条内部的行内换行（仅发生在"超长无标点分句"的例外情况，见拆句优化）。
+语言码字段（此处 `en`/`zh`）由配置决定；文本内部可能含 `\n`，表示该条内部的行内换行（仅发生在"超长无标点分句"的例外情况，见拆句优化）。
 
 ## 优化规则
 
 ### 1. 标点优化（配置：`[refine] strip_end_punct`，默认 `true`）
 
-去掉字幕文本**末尾**的句号、逗号、顿号、分号，保留问号、感叹号等语气标点。中文字幕惯例句尾不带这些标点；拆句优化保留在分句末尾的逗号/顿号/分号也会一并去掉。
+去掉拆句主语言文本**末尾**的句号、逗号、顿号、分号（集合按语言规则表，zh/ja 去、拉丁系保留），保留问号、感叹号等语气标点。东亚字幕惯例句尾不带这些标点；拆句优化保留在分句末尾的逗号/顿号/分号也会一并去掉。
 
 - `"你好。"` → `"你好"`
 - `"你好。。 "` → `"你好"`（重复标点与末尾空白一并去除）
-- `"倒计时存储在奖励挑战计时器中，然后发送到神经毒素屏幕，"` → `"…神经毒素屏幕"`（句尾逗号去掉）
 - `"真的吗？"` → `"真的吗？"`（问号保留）
 - 只作用于文本末尾；`"数字6.25"` 这类内部小数点不受影响
 - 去标点在**拆句之后**对每条分句再执行一次：拆句可能暴露出新的句尾逗号（原文中段的逗号在拆句后成为分句末尾）
 
 ### 2. 拆句优化（配置：`[refine] max_chars`，默认 `42`）
 
-单条字幕文本超过 `max_chars` 字符时，**只在分句标点（，、；）处**拆成多条字幕；不允许在任意位置断行。拆出的条目时间按**字符数比例**从原句时间中分配（首段起点 = 原句起点，末段终点 = 原句终点，段间无缝衔接）。
+拆句主语言文本超过 `max_chars` 字符时，**只在分句标点处**拆成多条字幕；不允许在任意位置断行。拆出的条目时间按**字符数比例**从原句时间中分配（首段起点 = 原句起点，末段终点 = 原句终点，段间无缝衔接）。
 
 规则细节：
 
 - 先按分句标点切块，再**贪心合并**（尽量填满 `max_chars`），避免拆出过短的碎片。
-- 超长且内部无分句标点的分句（例外情况）：允许在空格（英文）或虚词（中文"的了和但而是与被将把也还都就才再又很最更"）之后行内断行，断行处用 `\n` 标记。这是唯一允许的非分句级断点，目的是避免字幕超出屏幕宽度。
-- 英文原文按中文各段的字符数比例同步拆分（保证双语条目一一对应），切点就近（±10 字符）调整到空格处；中文英文的拆分数不一致时防御性整段复制。
+- 超长且内部无分句标点的分句（例外情况）：允许在空格（任意语言）或断行字符（中文虚词/日文助词，按语言规则）之后行内断行，断行处用 `\n` 标记。这是唯一允许的非分句级断点，目的是避免字幕超出屏幕宽度。
+- 副语言原文按主语言各段的字符数比例同步拆分（保证双语条目一一对应），切点就近（±10 字符）调整到空格处；两语言拆分数不一致时防御性整段复制。
 
 示例（真实数据，83 字拆为 3 条）：
 
@@ -68,11 +82,11 @@ translate ──> segments_en.json ──┐
 
 实测效果（Portal 测试视频）：232 条原始字幕经拆句后为 266 条，接缝优化共填平 93 处微小间隔/重叠，最终 0 重叠、0 微小间隔。
 
-### 4. 双语支持（配置：`[style] bilingual` 默认 `true`，`[style] en_font_ratio` 默认 `0.6`）
+### 4. 双语支持（配置：`[style] mode = "bilingual"`，副行字号 `secondary_font_ratio` 默认 `0.6`）
 
-- `srt` 环节：输出双语 SRT，每条字幕文本为 `中文\n英文` 两行（纯文本，样式由播放器决定）。
-- `burn` 环节：输出双语 ASS，定义两个样式——`Default`（中文，字号按 `font_size_ratio` 计算）与 `English`（英文，字号 = 中文字号 × `en_font_ratio`）。单条 Dialogue 文本结构：`中文\N{\rEnglish}英文`，即第一行中文用 Default 样式，`\rEnglish` 标签之后切换到 English 样式。两条字幕行共用同一时间轴。
-- `bilingual = false` 时只输出中文，行为与单语相同。
+- `srt` 环节：输出双语 SRT，每条字幕文本为 `主语言\n副语言` 两行（纯文本，样式由播放器决定；顺序由 `[style] primary_lang`/`secondary_lang` 决定）。
+- `burn` 环节：输出双语 ASS，定义两个样式——`Default`（主行，字号按 `font_size_ratio` 计算）与 `Secondary`（副行，字号 = 主字号 × `secondary_font_ratio`）。单条 Dialogue 文本结构：`主语言文本\N{\rSecondary}副语言文本`，即第一行主语言用 Default 样式，`\rSecondary` 标签之后切换到 Secondary 样式。两条字幕行共用同一时间轴。
+- `mode = "mono"` 时只输出主语言，行为与单语相同。
 - 原始 SRT 解析路径（无 `refined.json`）不变，仍为单语。
 
 ## 配置参数
@@ -81,13 +95,16 @@ translate ──> segments_en.json ──┐
 | --- | --- | --- | --- |
 | `max_chars` | `[refine]` | 42 | 单条字幕最大字符数，超过则在分句标点处拆句 |
 | `min_gap` | `[refine]` | 0.35 | 接缝填平阈值（秒），间隔小于该值的前一条延伸至后一条开始；≤0 关闭 |
-| `strip_end_punct` | `[refine]` | true | 去掉字幕末尾句号 |
-| `bilingual` | `[style]` | true | 双语输出（上中文下英文） |
-| `en_font_ratio` | `[style]` | 0.6 | 英文字号相对中文字号的比例 |
+| `strip_end_punct` | `[refine]` | true | 去掉主语言文本末尾句号（集合按语言规则） |
+| `split_on_space` | `[refine]` | false | 是否把空格也作为分句分隔符；缺省按主语言规则表 |
+| `split_punct` / `strip_punct` / `break_after` | `[refine]` | 空 | 覆盖内置语言规则（分句标点/句尾去除/行内断行字符） |
+| `mode` | `[style]` | bilingual | 双语输出（主语言在上、副语言在下） |
+| `primary_lang` / `secondary_lang` | `[style]` | 缺省 target/source | 主/副语言码（决定取哪个字段、谁主拆） |
+| `secondary_font_ratio` | `[style]` | 0.6 | 副行字号相对主行字号的比例 |
 
 ## 断点与重跑
 
-- refine 有独立断点：`meta.json` 的 `steps.refine = "done"`，且 `meta.refine` 记录了 `{max_chars, min_gap, strip_end_punct}`；任一参数变化后旧产物自动失效，重跑 refine 即可。
+- refine 有独立断点：`meta.json` 的 `steps.refine = "done"`，且 `meta.refine` 记录了 `{max_chars, min_gap, strip_end_punct, split_on_space, primary_lang, src_lang, tgt_lang, rule}`；任一参数（含语言配置、语言规则）变化后旧产物自动失效，重跑 refine 即可。
 - `quicksrt refine --force` 强制重跑。
 - refine 之后需要重新执行 `quicksrt srt --force` 和 `quicksrt burn --force` 才能把新结果落到 SRT / ASS / 成品视频。
 - 全链路命令 `quicksrt all` 已包含 refine（位于 translate 之后、srt 之前）。
@@ -96,4 +113,5 @@ translate ──> segments_en.json ──┐
 
 - 拆句后条目增多（实测 232 → 266），字幕切换变频繁，但每条时长与语音严格对齐（按字符比例分配），不会出现"语音未完字幕消失"。
 - 行内断行的虚词断点属于启发式规则，超长无标点分句可能断在非理想位置；这类句子在真实解说视频中占比很低。
-- 英文比例切分不保证切在语义边界，只保证与中文条目一一对应、时间轴一致；切点已就近调整到空格处。
+- 副语言比例切分不保证切在语义边界，只保证与主语言条目一一对应、时间轴一致；切点已就近调整到空格处。
+- 主语言必须为源或目标语言之一，否则 refine 报错；源语言与目标语言相同也会报错。
