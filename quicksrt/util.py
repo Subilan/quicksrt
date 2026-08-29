@@ -123,18 +123,20 @@ def setup_logging(workdir: Path | None = None, verbose: bool = False,
                   color: bool | None = None) -> logging.Logger:
     """初始化 quicksrt logger；终端输出可着色，文件日志永不着色。
 
+    幂等：stream handler 只创建一次（首次调用决定 verbose/color），后续调用
+    可在 workdir 确定/变化时补充文件 handler（写 workdir/quicksrt.log），
+    保证 CLI 参数校验阶段的日志（尚无 workdir）也能走标准输出。
     color: None 自动（终端才上色，尊重 QUICKSRT_NO_COLOR/NO_COLOR），True/False 强制。
     """
     log = logging.getLogger("quicksrt")
-    if log.handlers:
-        return log
-    log.setLevel(logging.DEBUG if verbose else logging.INFO)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S")
-    sh = logging.StreamHandler()
-    sh.setFormatter(_ColoredFormatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S")
-                    if _color_enabled(color) else fmt)
-    log.addHandler(sh)
-    if workdir is not None:
+    if not log.handlers:
+        log.setLevel(logging.DEBUG if verbose else logging.INFO)
+        sh = logging.StreamHandler()
+        sh.setFormatter(_ColoredFormatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S")
+                        if _color_enabled(color) else fmt)
+        log.addHandler(sh)
+    if workdir is not None and not any(isinstance(h, logging.FileHandler) for h in log.handlers):
         workdir.mkdir(parents=True, exist_ok=True)
         fh = logging.FileHandler(workdir / "quicksrt.log", encoding="utf-8")
         fh.setFormatter(fmt)

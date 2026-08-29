@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tomllib
 from pathlib import Path
@@ -224,14 +225,18 @@ def load_config(path: str | Path | None = None) -> Config:
         user_style = dict(user_raw.get("style", {}))
         raw = _deep_merge(raw, user_raw)
     else:
-        print(f"[config] 未找到 {cfg_path}，使用内置默认配置")
+        logging.getLogger("quicksrt").warning(
+            "[config] 未找到 %s，使用内置默认配置", cfg_path
+        )
 
     presets: dict = {}
     presets_path = cfg_path.parent / "presets.toml"
     if presets_path.exists():
         presets = tomllib.loads(presets_path.read_text(encoding="utf-8"))
     else:
-        print(f"[config] 未找到 {presets_path}，样式预设不可用")
+        logging.getLogger("quicksrt").warning(
+            "[config] 未找到 %s，样式预设不可用", presets_path
+        )
     return Config(raw, cfg_path, presets, user_style=user_style)
 
 

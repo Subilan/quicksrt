@@ -58,16 +58,18 @@ def _patch_run(monkeypatch, tmp_path):
     return seen
 
 
-def test_preview_preset_multi(tmp_path, monkeypatch):
-    """--preset a,b：按逗号分隔逐个渲染。"""
+def test_preview_preset_multi(tmp_path, monkeypatch, caplog):
+    """--preset a,b：按逗号分隔逐个渲染，结果走标准日志（info 级）。"""
+    import logging
     from typer.testing import CliRunner
     from quicksrt import cli
 
     seen = _patch_run(monkeypatch, tmp_path)
-    res = CliRunner().invoke(cli.app, ["preview", "--example", "lorem", "--preset", "plex,plex_yellow"])
+    with caplog.at_level(logging.INFO, logger="quicksrt"):
+        res = CliRunner().invoke(cli.app, ["preview", "--example", "lorem", "--preset", "plex,plex_yellow"])
     assert res.exit_code == 0, res.output
     assert [kw["preset"] for kw in seen] == ["plex", "plex_yellow"]
-    assert res.output.count("preview 完成:") == 2
+    assert caplog.text.count("preview 完成:") == 2
 
 
 def test_preview_all_preset(tmp_path, monkeypatch):

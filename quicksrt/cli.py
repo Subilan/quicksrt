@@ -42,6 +42,9 @@ def _main(
     """全局选项（置于子命令前，如 quicksrt --no-color preview）。"""
     if no_color:
         os.environ["QUICKSRT_NO_COLOR"] = "1"
+    # 基础终端日志：保证全程序输出（含 config 加载提示、子命令参数校验警告）
+    # 都走标准日志；文件日志由各子命令在确定 workdir 后补充。
+    util.setup_logging()
 
 
 def _cfg(config_path: Path) -> Config:
@@ -71,7 +74,7 @@ def download(
     if force:
         _reset_step(workdir, download_step.STEP)
     video_id = download_step.run(url, cfg, workdir, log, fmt=fmt)
-    typer.echo(f"video_id: {video_id}")
+    log.info("video_id: %s", video_id)
 
 
 @app.command()
@@ -87,7 +90,7 @@ def extract(
     if force:
         _reset_step(workdir, extract_step.STEP)
     extract_step.run(cfg, workdir, log)
-    typer.echo("extract 完成")
+    log.info("extract 完成")
 
 
 @app.command()
@@ -103,7 +106,7 @@ def upload(
     if force:
         _reset_step(workdir, upload_step.STEP)
     upload_step.run(cfg, workdir, log)
-    typer.echo("upload 完成")
+    log.info("upload 完成")
 
 
 @app.command()
@@ -119,7 +122,7 @@ def transcribe(
     if force:
         _reset_step(workdir, transcribe_step.STEP)
     segs = transcribe_step.run(cfg, workdir, log, force=force)
-    typer.echo(f"transcribe 完成: {len(segs)} 条句子")
+    log.info("transcribe 完成: %d 条句子", len(segs))
 
 
 @app.command()
@@ -135,7 +138,7 @@ def translate(
     if force:
         _reset_step(workdir, translate_step.STEP)
     segs = translate_step.run(cfg, workdir, log, force=force)
-    typer.echo(f"translate 完成: {len(segs)} 条字幕")
+    log.info("translate 完成: %d 条字幕", len(segs))
 
 
 @app.command()
@@ -151,7 +154,7 @@ def srt(
     if force:
         _reset_step(workdir, srt_step.STEP)
     path = srt_step.run(cfg, workdir, log, force=force)
-    typer.echo(f"srt 完成: {path}")
+    log.info("srt 完成: %s", path)
 
 
 @app.command()
@@ -167,7 +170,7 @@ def refine(
     if force:
         _reset_step(workdir, refine_step.STEP)
     path = refine_step.run(cfg, workdir, log, force=force)
-    typer.echo(f"refine 完成: {path}")
+    log.info("refine 完成: %s", path)
 
 
 @app.command()
@@ -184,7 +187,7 @@ def burn(
     if force:
         _reset_step(workdir, burn_step.STEP)
     out = burn_step.run(cfg, workdir, log, force=force, encoder=encoder)
-    typer.echo(f"burn 完成: {out}")
+    log.info("burn 完成: %s", out)
 
 
 @app.command()
@@ -210,7 +213,7 @@ def all(
     refine_step.run(cfg, workdir, log)
     srt_step.run(cfg, workdir, log)
     out = burn_step.run(cfg, workdir, log)
-    typer.echo(f"全链路完成: {out}")
+    log.info("全链路完成: %s", out)
 
 
 @app.command()
@@ -228,11 +231,14 @@ def preview(
 ):
     """渲染单条字幕 PNG 预览（语言模式取 [style] 配置；--preset 逗号分隔多个或 --all-preset 批量样式预览；--crop 输出紧贴文字的裁剪图；--example 用固定示例文本直接预览，不依赖已有数据）"""
     cfg = _cfg(config)
+    # 先初始化基础日志：参数校验阶段的警告也要走标准日志；
+    # 文件日志待 workdir 确定后再补充。
+    log = util.setup_logging()
     if example is not None:
         if example not in preview_step.EXAMPLES:
             raise typer.BadParameter(f"未知示例: {example}（可选: {', '.join(preview_step.EXAMPLES)}）")
         if video_id is not None:
-            typer.echo("警告: --example 模式下 --video-id 无效，忽略", err=True)
+            log.warning("--example 模式下 --video-id 无效，忽略")
             video_id = None
         if res == "auto":
             res = "1080p"  # 示例模式无源视频可探测，回退 1080p
@@ -240,17 +246,17 @@ def preview(
     else:
         if crop:
             if video_id is not None:
-                typer.echo("警告: --crop 模式下 --video-id 无效，改用最新 work 目录", err=True)
+                log.warning("--crop 模式下 --video-id 无效，改用最新 work 目录")
             if res != "auto":
-                typer.echo("警告: --crop 模式下 --res 无效，忽略", err=True)
+                log.warning("--crop 模式下 --res 无效，忽略")
             video_id, res = None, "auto"
             # --background 在 crop 下仍生效（截取背景色，不指定则用 [preview] background）
         workdir = _workdir(cfg, video_id)
+    util.setup_logging(workdir)  # 补充文件日志（crop 时落在最新 work 目录）
     try:
         presets = preview_step.resolve_presets(cfg, preset, all_preset)
     except ValueError as e:
         raise typer.BadParameter(str(e)) from e
-    log = util.setup_logging(workdir)
     if presets is None:
         outputs = [(None, preview_step.run(cfg, workdir, log, res=res, index=index, background=background, crop=crop, example=example))]
     else:
@@ -260,7 +266,9 @@ def preview(
         ]
     if inline:
         if os.environ.get("TERM_PROGRAM") != "iTerm.app":
-            typer.echo("警告: 当前终端不是 iTerm2，内联图片可能无法显示", err=True)
+            log.warning("当前终端不是 iTerm2，内联图片可能无法显示")
+        # 内联图片是 iTerm2 终端协议转义序列（功能性数据，非日志消息），
+        # 保持原样写 stdout，不走日志（日志会加前缀/换行破坏协议）。
         # 每张图独占一行（100% 宽度）；多预设时预设名单独一行，图片在下一行
         for name, out in outputs:
             if name:
@@ -268,7 +276,7 @@ def preview(
             typer.echo(preview_step.inline_image_escape(out))
             typer.echo()
     for _, out in outputs:
-        typer.echo(f"preview 完成: {out}")
+        log.info("preview 完成: %s", out)
 
 
 @app.command()
@@ -279,20 +287,21 @@ def status(
     """查看某个视频的流水线状态"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
+    log = util.setup_logging(workdir)
     meta = util.load_meta(workdir)
     if not meta:
-        typer.echo(f"work 目录 {workdir} 无 meta.json")
+        log.warning("work 目录 %s 无 meta.json", workdir)
         return
-    typer.echo(f"video_id : {meta.get('video_id', '-')}")
-    typer.echo(f"title    : {meta.get('title', '-')}")
-    typer.echo(f"url      : {meta.get('url', '-')}")
-    typer.echo(f"时长     : {meta.get('duration', 0):.1f}s")
+    log.info("video_id : %s", meta.get("video_id", "-"))
+    log.info("title    : %s", meta.get("title", "-"))
+    log.info("url      : %s", meta.get("url", "-"))
+    log.info("时长     : %.1fs", meta.get("duration", 0))
     steps = meta.get("steps", {})
     for name in ("download", "extract", "upload", "transcribe", "translate", "refine", "srt", "burn"):
         mark = "✓" if steps.get(name) == "done" else "·"
-        typer.echo(f"  {mark} {name}")
+        log.info("  %s %s", mark, name)
     if meta.get("audio_url"):
-        typer.echo(f"audio_url: {meta['audio_url'][:80]}...")
+        log.info("audio_url: %s...", meta["audio_url"][:80])
 
 
 @app.command()
@@ -304,12 +313,13 @@ def clean(
     """删除某个视频的 work 目录（全部中间产物）"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
+    log = util.setup_logging(workdir)
     if not yes:
         typer.confirm(f"确认删除 {workdir}？", abort=True)
     import shutil
 
     shutil.rmtree(workdir)
-    typer.echo(f"已删除 {workdir}")
+    log.info("已删除 %s", workdir)
 
 
 def _reset_step(workdir: Path, step: str) -> None:
