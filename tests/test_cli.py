@@ -96,22 +96,76 @@ def test_preview_preset_and_all_preset_conflict(tmp_path, monkeypatch):
     assert "互斥" in res.output
 
 
-def test_preview_all_preset_inline(tmp_path, monkeypatch):
-    """--all-preset --inline-image：每张图一个转义序列、各自独占一行（100% 宽度）。"""
+def test_preview_all_preset_display(tmp_path, monkeypatch):
+    """--all-preset --display：iTerm2 兼容终端逐图展示；渲染到临时目录，运行后无残留文件。"""
     from typer.testing import CliRunner
     from quicksrt import cli
     from quicksrt.config import load_config
 
-    _patch_run(monkeypatch, tmp_path)
+    monkeypatch.setenv("TERM_PROGRAM", "iTerm.app")
+    monkeypatch.delenv("TMUX", raising=False)
+    seen = _patch_run(monkeypatch, tmp_path)
     monkeypatch.setattr(
         cli.preview_step, "inline_image_escape",
         lambda p, width="100%": f"[IMG:{width}]",
     )
     n = len(load_config("config.toml").presets)
-    res = CliRunner().invoke(cli.app, ["preview", "--example", "lorem", "--all-preset", "--inline-image"])
+    res = CliRunner().invoke(cli.app, ["preview", "--example", "lorem", "--all-preset", "--display"])
     assert res.exit_code == 0, res.output
     # 每张图 100% 宽度、转义序列后各有一个换行（一个一行）
     assert res.output.count("[IMG:100%]\n") == n
     # 预设名单独一行，图片在下一行（按名排序）
     for p in sorted(load_config("config.toml").presets):
         assert f"[{p}]\n[IMG:100%]\n" in res.output
+    # --display 渲染到临时目录，展示后整体删除：不产生文件
+    assert len(seen) == n
+    for kw in seen:
+        assert kw["out_dir"] is not None and kw["out_dir"].name.startswith("quicksrt-display-")
+        assert not kw["out_dir"].exists()
+
+
+def test_preview_display_incompatible_terminal(tmp_path, monkeypatch, caplog):
+    """--display 在非 iTerm2 终端：warning 并直接退出，不渲染。"""
+    import logging
+    from typer.testing import CliRunner
+    from quicksrt import cli
+
+    monkeypatch.delenv("TERM_PROGRAM", raising=False)
+    monkeypatch.delenv("TMUX", raising=False)
+    seen = _patch_run(monkeypatch, tmp_path)
+    with caplog.at_level(logging.WARNING, logger="quicksrt"):
+        res = CliRunner().invoke(cli.app, ["preview", "--example", "lorem", "--display"])
+    assert res.exit_code == 1
+    assert not seen  # 未渲染
+    assert "不是 iTerm2" in caplog.text and "--display 不可用" in caplog.text
+
+
+def test_preview_display_incompatible_tmux(tmp_path, monkeypatch):
+    """--display 在 tmux 会话中同样视为不兼容：warning 并退出，不渲染。"""
+    import logging
+    from typer.testing import CliRunner
+    from quicksrt import cli
+
+    monkeypatch.setenv("TERM_PROGRAM", "iTerm.app")
+    monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,1000,0")
+    seen = _patch_run(monkeypatch, tmp_path)
+    res = CliRunner().invoke(cli.app, ["preview", "--example", "lorem", "--display"])
+    assert res.exit_code == 1
+    assert not seen
+
+
+def test_preview_display_legacy_alias(tmp_path, monkeypatch):
+    """--inline-image 作为 --display 的兼容别名仍可用。"""
+    from typer.testing import CliRunner
+    from quicksrt import cli
+
+    monkeypatch.setenv("TERM_PROGRAM", "iTerm.app")
+    monkeypatch.delenv("TMUX", raising=False)
+    seen = _patch_run(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        cli.preview_step, "inline_image_escape", lambda p, width="100%": "[IMG]",
+    )
+    res = CliRunner().invoke(cli.app, ["preview", "--example", "lorem", "--inline-image"])
+    assert res.exit_code == 0, res.output
+    assert len(seen) == 1
+    assert res.output.count("[IMG]") == 1

@@ -4,7 +4,8 @@
 字号/边距按目标分辨率比例计算，预览即"烧进该分辨率视频"的效果。
 分辨率预设 720p/1080p/4k，或 auto（源视频分辨率，需 video.mp4 存在）。
 默认渲染第一条字幕，--index 可指定任意条；语言模式取 [style] 配置。
-CLI 加 --inline-image 时生成 iTerm2 内联图片转义序列，终端内直接展示。
+CLI 加 --display 时生成 iTerm2 内联图片转义序列，终端内直接展示
+（渲染到临时目录，展示后即清理，不产生文件；终端不兼容则拒绝执行）。
 
 --crop：不渲染背景帧，纯色背景渲染后按非背景色包围盒裁剪，输出紧贴文字、
 保留纯色背景的 PNG。截取背景色：--background 优先，否则取 [preview] background（默认 black）；
@@ -21,6 +22,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -91,6 +93,19 @@ def pick_item(items: list[dict], index: int) -> dict:
     return {**items[index - 1], "start": 0.0, "end": 1.0}
 
 
+def display_compatible() -> str | None:
+    """校验当前终端是否支持 iTerm2 内联图片；兼容返回 None，否则返回不兼容原因。
+
+    严格要求：TERM_PROGRAM 为 iTerm.app（1337 内联图片是 iTerm2 专用协议），
+    且不在 tmux 会话中（tmux 默认吞掉转义序列，需额外开启 allow-passthrough）。
+    """
+    if os.environ.get("TERM_PROGRAM") != "iTerm.app":
+        return "当前终端不是 iTerm2"
+    if os.environ.get("TMUX"):
+        return "当前处于 tmux 会话，无法透传内联图片"
+    return None
+
+
 def inline_image_escape(path: Path, width: str = "100%") -> str:
     """生成 iTerm2 内联图片转义序列（协议见 iterm2.com/documentation-images.html）。"""
     b64 = base64.b64encode(path.read_bytes()).decode()
@@ -140,11 +155,12 @@ def resolve_presets(cfg, preset: str | None, all_preset: bool = False) -> list[s
 
 def _run_crop(cfg, workdir: Path | None, log: logging.Logger, items: list[dict],
               index: int, meta: dict, preset: str | None = None,
-              background: str | None = None) -> Path:
+              background: str | None = None, out_dir: Path | None = None) -> Path:
     """纯色背景渲染单条字幕，按非背景色包围盒裁剪，输出保留该纯色背景的 PNG。
 
     截取背景色：background 参数优先，否则取 [preview] background（默认 black）。
     背景色需与文字颜色有足够差异，否则包围盒探测失败。
+    out_dir 非 None 时输出与 ASS 临时文件都写入该目录（如 --display 的临时目录）。
     """
     item = pick_item(items, index)
     style_cfg = cfg.style_config(preset=preset)
@@ -153,17 +169,17 @@ def _run_crop(cfg, workdir: Path | None, log: logging.Logger, items: list[dict],
     ass = burn.build_ass_items(
         [item], style_cfg, probe, mode=mode, primary_lang=primary_lang
     )
-    scratch = _scratch_dir(cfg, workdir)
+    scratch = out_dir if out_dir is not None else _scratch_dir(cfg, workdir)
     ass_path = scratch / "preview_crop.ass"
     scratch.mkdir(parents=True, exist_ok=True)
     ass_path.write_text(ass, encoding="utf-8")
 
-    out_dir = cfg.output_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir if out_dir is not None else cfg.output_dir
+    target.mkdir(parents=True, exist_ok=True)
     title = _output_title(meta, workdir)
     tag = _preset_tag(preset)
-    raw_png = out_dir / f"{title}_preview{tag}_crop_raw.png"
-    output = out_dir / f"{title}_preview{tag}_crop.png"
+    raw_png = target / f"{title}_preview{tag}_crop_raw.png"
+    output = target / f"{title}_preview{tag}_crop.png"
     bg = background or cfg.section("preview").get("background", "black")
     try:
         # 1. 纯色背景渲染（ass 滤镜只写 RGB 不写 alpha，故截取背景 + 非背景色探测）
@@ -205,8 +221,10 @@ def _run_crop(cfg, workdir: Path | None, log: logging.Logger, items: list[dict],
 
 def _render_frame(cfg, workdir: Path | None, log: logging.Logger, items: list[dict],
                   index: int, meta: dict, res: str, background: str | None,
-                  preset: str | None) -> Path:
-    """纯色背景帧 + 单条字幕渲染（普通预览）。"""
+                  preset: str | None, out_dir: Path | None = None) -> Path:
+    """纯色背景帧 + 单条字幕渲染（普通预览）。
+    out_dir 非 None 时输出与 ASS 临时文件都写入该目录（如 --display 的临时目录）。
+    """
     width, height, res_label = resolve_size(res, workdir)
     item = pick_item(items, index)
 
@@ -215,15 +233,15 @@ def _render_frame(cfg, workdir: Path | None, log: logging.Logger, items: list[di
     ass = burn.build_ass_items(
         [item], style_cfg, {"width": width, "height": height}, mode=mode, primary_lang=primary_lang
     )
-    scratch = _scratch_dir(cfg, workdir)
+    scratch = out_dir if out_dir is not None else _scratch_dir(cfg, workdir)
     ass_path = scratch / "preview.ass"
     scratch.mkdir(parents=True, exist_ok=True)
     ass_path.write_text(ass, encoding="utf-8")
 
-    out_dir = cfg.output_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir if out_dir is not None else cfg.output_dir
+    target.mkdir(parents=True, exist_ok=True)
     title = _output_title(meta, workdir)
-    output = out_dir / f"{title}_preview{_preset_tag(preset)}_{res_label}.png"
+    output = target / f"{title}_preview{_preset_tag(preset)}_{res_label}.png"
 
     bg = background or cfg.section("preview").get("background", "black")
     color_src = f"color=c={bg}:s={width}x{height}:d=1"
@@ -244,11 +262,12 @@ def _render_frame(cfg, workdir: Path | None, log: logging.Logger, items: list[di
 
 def _run_example(cfg, workdir: Path | None, log: logging.Logger, example: str,
                  res: str = "auto", index: int = 1, background: str | None = None,
-                 crop: bool = False, preset: str | None = None) -> Path:
+                 crop: bool = False, preset: str | None = None,
+                 out_dir: Path | None = None) -> Path:
     """用内置固定示例文本（中英对照）渲染预览，不依赖 refined.json 等已有数据。
 
     示例模式无源视频，--res auto 回退 1080p；workdir 为 None 时 ASS 临时文件写入
-    output_dir，渲染后清理。
+    output_dir，渲染后清理。out_dir 非 None 时全部临时文件写入该目录（如 --display）。
     """
     text = EXAMPLES.get(example)
     if text is None:
@@ -257,13 +276,13 @@ def _run_example(cfg, workdir: Path | None, log: logging.Logger, example: str,
         res = "1080p"
     meta = {"title": f"example-{example}"}
     items = [{"id": 0, "start": 0.0, "end": 1.0, **text}]
-    scratch = _scratch_dir(cfg, workdir)
+    scratch = out_dir if out_dir is not None else _scratch_dir(cfg, workdir)
     try:
         if crop:
             return _run_crop(cfg, workdir, log, items, index, meta,
-                             preset=preset, background=background)
+                             preset=preset, background=background, out_dir=out_dir)
         return _render_frame(cfg, workdir, log, items, index, meta, res=res,
-                             background=background, preset=preset)
+                             background=background, preset=preset, out_dir=out_dir)
     finally:
         # 示例模式 ASS 是临时文件，渲染后清理
         for name in ("preview.ass", "preview_crop.ass"):
@@ -272,14 +291,15 @@ def _run_example(cfg, workdir: Path | None, log: logging.Logger, example: str,
 
 def run(cfg, workdir: Path | None, log: logging.Logger, res: str = "auto", index: int = 1,
         background: str | None = None, crop: bool = False, preset: str | None = None,
-        example: str | None = None) -> Path:
+        example: str | None = None, out_dir: Path | None = None) -> Path:
     """background 为 None 时取 [preview] background（默认 black）；
     crop 时 background 作为截取背景色（未指定则取 [preview] background，默认 black），输出保留该纯色背景；
     preset 非 None 时临时切换样式预设；
-    example 非 None 时用内置示例文本预览（不依赖已有数据，workdir 可为 None）。"""
+    example 非 None 时用内置示例文本预览（不依赖已有数据，workdir 可为 None）；
+    out_dir 非 None 时输出与临时文件写入该目录（如 --display 的临时目录，不产生文件）。"""
     if example is not None:
         return _run_example(cfg, workdir, log, example, res=res, index=index,
-                            background=background, crop=crop, preset=preset)
+                            background=background, crop=crop, preset=preset, out_dir=out_dir)
     meta = util.load_meta(workdir)
     refined_path = workdir / "refined.json"
     if not refined_path.exists():
@@ -288,6 +308,7 @@ def run(cfg, workdir: Path | None, log: logging.Logger, res: str = "auto", index
     if not items:
         raise RuntimeError("refined.json 为空，无法预览")
     if crop:
-        return _run_crop(cfg, workdir, log, items, index, meta, preset=preset, background=background)
+        return _run_crop(cfg, workdir, log, items, index, meta, preset=preset,
+                         background=background, out_dir=out_dir)
     return _render_frame(cfg, workdir, log, items, index, meta, res=res,
-                         background=background, preset=preset)
+                         background=background, preset=preset, out_dir=out_dir)

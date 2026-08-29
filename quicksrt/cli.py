@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import typer
@@ -225,7 +226,7 @@ def preview(
     background: str | None = typer.Option(None, "--background", help="预览背景色（覆盖 [preview] background，ffmpeg color 支持的值，如 white/#202020；crop 时作为截取背景色，不指定则沿用 [preview] background 默认值）"),
     preset: str | None = typer.Option(None, "--preset", help="样式预设名（逗号分隔多个，如 plex,plex_yellow；覆盖 config.toml [style] 的 preset，仅本次预览生效）"),
     all_preset: bool = typer.Option(False, "--all-preset", help="批量渲染 presets.toml 中所有样式预设的效果；与 --preset 互斥"),
-    inline: bool = typer.Option(False, "--inline-image", help="在 iTerm2 终端内直接展示预览图（多预设时并排对比）"),
+    display: bool = typer.Option(False, "--display", "--inline-image", help="在 iTerm2 终端内直接展示预览图（渲染到临时目录、不产生文件；终端不兼容则直接退出）"),
     crop: bool = typer.Option(False, "--crop", help="只渲染文字本身（输出紧贴文字范围的 PNG，无背景帧）；此时 --res/--video-id/--background 无效"),
     example: str | None = typer.Option(None, "--example", metavar="lorem|glass|fox", help="用内置固定示例文本预览（lorem/glass/fox，默认 lorem），不依赖已有 work 数据；与 --video-id 互斥"),
 ):
@@ -257,26 +258,41 @@ def preview(
         presets = preview_step.resolve_presets(cfg, preset, all_preset)
     except ValueError as e:
         raise typer.BadParameter(str(e)) from e
-    if presets is None:
-        outputs = [(None, preview_step.run(cfg, workdir, log, res=res, index=index, background=background, crop=crop, example=example))]
-    else:
-        outputs = [
-            (p, preview_step.run(cfg, workdir, log, res=res, index=index, background=background, crop=crop, preset=p, example=example))
+
+    def _render(out_dir: Path | None) -> list[tuple[str | None, Path]]:
+        """渲染全部目标（单条或各预设），out_dir 非 None 时写入该目录（--display 临时目录）。"""
+        if presets is None:
+            return [(None, preview_step.run(
+                cfg, workdir, log, res=res, index=index, background=background,
+                crop=crop, example=example, out_dir=out_dir,
+            ))]
+        return [
+            (p, preview_step.run(
+                cfg, workdir, log, res=res, index=index, background=background,
+                crop=crop, preset=p, example=example, out_dir=out_dir,
+            ))
             for p in presets
         ]
-    if inline:
-        if os.environ.get("TERM_PROGRAM") != "iTerm.app":
-            log.warning("当前终端不是 iTerm2，内联图片可能无法显示")
-        # 内联图片是 iTerm2 终端协议转义序列（功能性数据，非日志消息），
-        # 保持原样写 stdout，不走日志（日志会加前缀/换行破坏协议）。
-        # 每张图独占一行（100% 宽度）；多预设时预设名单独一行，图片在下一行
-        for name, out in outputs:
-            if name:
-                typer.echo(f"[{name}]")
-            typer.echo(preview_step.inline_image_escape(out))
-            typer.echo()
-    for _, out in outputs:
-        log.info("preview 完成: %s", out)
+
+    if display:
+        # 严格校验终端兼容性：不兼容直接 warning + 退出，不白费渲染
+        reason = preview_step.display_compatible()
+        if reason is not None:
+            log.warning("%s，--display 不可用", reason)
+            raise typer.Exit(1)
+        # 渲染到临时目录，展示后自动整体清理：--display 不产生任何文件
+        with tempfile.TemporaryDirectory(prefix="quicksrt-display-") as tmp:
+            # 内联图片是 iTerm2 终端协议转义序列（功能性数据，非日志消息），
+            # 保持原样写 stdout，不走日志（日志会加前缀/换行破坏协议）。
+            # 每张图独占一行（100% 宽度）；多预设时预设名单独一行，图片在下一行
+            for name, out in _render(Path(tmp)):
+                if name:
+                    typer.echo(f"[{name}]")
+                typer.echo(preview_step.inline_image_escape(out))
+                typer.echo()
+    else:
+        for _, out in _render(None):
+            log.info("preview 完成: %s", out)
 
 
 @app.command()
