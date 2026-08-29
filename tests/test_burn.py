@@ -5,8 +5,7 @@ import pytest
 from quicksrt.steps.burn import (
     _ass_escape,
     _ass_ts,
-    _bg_color_parts,
-    _bg_dialogue,
+    _bg_ass_color,
     _ensure_font,
     _fmt,
     _lang_color,
@@ -320,56 +319,81 @@ def test_build_ass_italic_shear():
     assert "{\\fax0.2}你好\\N{\\rSecondary}{\\fax-0.15}hello" in ass
 
 
-# ---------- 字幕背景（全宽半透明矩形条） ----------
-
-def test_bg_color_parts():
-    assert _bg_color_parts("&H80000000") == ("&H000000", "&H80")
-    assert _bg_color_parts("&H33FF0000") == ("&HFF0000", "&H33")  # BBGGRR 蓝 + alpha 33
+# ---------- 字幕背景（BorderStyle=3 box，贴合文本） ----------
 
 
-def test_build_ass_bg_dialogue_emitted_first():
+def test_bg_ass_color_alpha_compensation():
+    """bg_color 解析 + alpha 平方根校正：libass box 为两层叠加，
+    视觉不透明度 = 1-(a/255)²，校正后配置的透明度精确生效。"""
+    # rgba(0,0,0,0.5) -> ASS alpha 128 -> 校正 181（视觉 50% 黑）
+    assert _bg_ass_color({**{'bg_color': "rgba(0, 0, 0, 0.5)"}}) == "&HB5000000"
+    # 不透明色 alpha=0 不变
+    assert _bg_ass_color({**{'bg_color': "#000000"}}) == "&H00000000"
+    # #RRGGBBAA 的 AA 是 ASS alpha，同样校正
+    assert _bg_ass_color({**{'bg_color': "#00000080"}}) == "&HB5000000"
+    # 默认值
+    assert _bg_ass_color({}) == "&HB5000000"
+
+
+def test_build_ass_bg_box_style():
+    """bg_enabled：Default/Secondary 样式切 BorderStyle=3，
+    OutlineColour=BackColour=box 色（含 alpha），Shadow=1（box 走 outline 槽），
+    Outline=按字号的内边距。"""
     style = {**_STYLE, "bg_enabled": True, "bg_color": "rgba(0, 0, 0, 0.5)", "bg_padding_ratio": 0.35}
     ass = build_ass_items(_ITEMS, style, _PROBE)
-    assert ass.count("Dialogue: 0,") == 2  # 背景 + 文本
-    bg, text = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
-    assert "\\p1" in bg and "\\p0" in bg
-    assert "\\an2\\pos(" in bg
-    assert "\\1c&H000000&\\1a&H80&" in bg
-    assert "\\3a&HFF&\\4a&HFF&" in bg  # 描边/阴影透明
-    assert bg.startswith("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,")
-    assert "你好\\N{\\rSecondary}hello" in text  # 文本行不受影响
+    assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&HB5000000,&HB5000000,0,0,0,0,100,100,0,0,3,18.9,1,2" in ass
+    assert "Style: Secondary,EN-Font,32,&H00FFFFFF,&H000000FF,&HB5000000,&HB5000000,0,0,0,0,100,100,0,0,3,11.2,1,2" in ass
+    assert ass.count("Dialogue: 0,") == 1  # 无独立背景 Dialogue
 
 
-def test_build_ass_bg_hex8_alpha():
-    """bg_color 用 #RRGGBBAA：AA 直接作 ASS alpha。"""
-    style = {**_STYLE, "bg_enabled": True, "bg_color": "#00000080", "bg_padding_ratio": 0.35}
+def test_build_ass_bg_inline_bord():
+    """文本 Dialogue 内联 \\bord 按各语言字号设置 box 内边距（主 18.9 / 副 11.2）。"""
+    style = {**_STYLE, "bg_enabled": True, "bg_padding_ratio": 0.35}
     ass = build_ass_items(_ITEMS, style, _PROBE)
-    bg = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,") and "\\p1" in l)
-    assert "\\1c&H000000&\\1a&H80&" in bg
+    dl = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,"))
+    assert "{\\bord18.9}你好\\N{\\rSecondary}{\\bord11.2}hello" in dl
+
+
+def test_build_ass_bg_mono():
+    """mono 模式：单 \\bord，无副语言段。"""
+    style = {**_STYLE, "bg_enabled": True, "bg_padding_ratio": 0.35}
+    ass = build_ass_items(_ITEMS, style, _PROBE, mode="mono")
+    assert "Style: Secondary" not in ass
+    dl = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,"))
+    assert "{\\bord18.9}你好" in dl
+
+
+def test_build_ass_bg_with_shear():
+    """bg + italic_shear：\\bord 与 \\fax 合并进同一 override。"""
+    style = {**_STYLE, "bg_enabled": True, "zh_italic_shear": 0.2, "en_italic_shear": "-0.15"}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    dl = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,"))
+    assert "{\\bord18.9\\fax0.2}你好\\N{\\rSecondary}{\\bord11.2\\fax-0.15}hello" in dl
+
+
+def test_build_ass_bg_ignores_shadow():
+    """bg 模式覆盖 shadow：不输出阴影层/模糊层，文本行只有一条。"""
+    style = {**_STYLE, "bg_enabled": True, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    assert ass.count("Dialogue: 0,") == 1
+    assert "\\blur" not in ass and "\\pos(" not in ass
 
 
 def test_build_ass_bg_disabled_by_default():
     ass = build_ass_items(_ITEMS, _STYLE, _PROBE)
     assert ass.count("Dialogue: 0,") == 1
-    assert "\\p1" not in ass
+    assert "BorderStyle=3" not in ass.replace("\n", "").replace(" ", "")  # 默认 BorderStyle=1
+    assert "\\bord" not in ass
 
 
-def test_bg_dialogue_geometry_mono_single_line():
-    style = {**_STYLE, "bg_padding_ratio": 0.35}
-    it = {"id": 0, "src_id": 0, "start": 0.0, "end": 1.0, "zh": "你好", "en": "hi"}
-    bg = _bg_dialogue(it, 1920, 1080, 54, 32, 54, 58, style, "mono", "zh")
-    # 块高 = 0.8*54 + 2*0.35*54 = 81；块底 = 1080-54-0.167*54+0.35*54 ≈ 1035.88
-    assert "m 0 0 l 1920.00 0 l 1920.00 81.00 l 0 81.00 l 0 0" in bg
-    assert "\\pos(960.0,1035.88)" in bg
-
-
-def test_bg_dialogue_geometry_bilingual():
-    style = {**_STYLE, "bg_padding_ratio": 0.35}
-    it = {"id": 0, "src_id": 0, "start": 0.0, "end": 1.0, "zh": "你好", "en": "hi"}
-    bg = _bg_dialogue(it, 1920, 1080, 54, 32, 54, 58, style, "bilingual", "zh")
-    # 块高 = 54(主行) + 0.8*32(末行英文) + 2*18.9 = 117.4；块底 = 1080-54-0.167*32+18.9 ≈ 1039.56
-    assert "l 1920.00 117.40 l 0 117.40" in bg
-    assert "\\pos(960.0,1039.56)" in bg
+def test_build_ass_srt_bg(tmp_path):
+    """build_ass（srt 直烧路径）同样支持 box 背景。"""
+    srt = tmp_path / "s.srt"
+    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\n你好\n\n", encoding="utf-8")
+    style = {**_STYLE, "bg_enabled": True, "bg_padding_ratio": 0.35}
+    ass = build_ass(srt, style, _PROBE)
+    assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&HB5000000,&HB5000000,0,0,0,0,100,100,0,0,3,18.9,1,2" in ass
+    assert "{\\bord18.9}你好" in ass
 
 
 # ---------- 阴影重构（shadow 偏移/模糊/颜色） ----------
@@ -482,14 +506,13 @@ def test_build_ass_single_layer_equal_offset():
 
 
 def test_build_ass_bg_with_two_layer_shadow():
-    """背景条 + 双层阴影：三个 Dialogue，顺序为背景 -> 阴影层 -> 文本层。"""
+    """背景 + 双层阴影：box 背景替代阴影层，只输出文本层一条（避免双重 box）。"""
     style = {**_STYLE, "bg_enabled": True, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
     ass = build_ass_items(_ITEMS, style, _PROBE)
     dls = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
-    assert len(dls) == 3
-    assert "\\p1" in dls[0]    # 背景条
-    assert "\\blur" in dls[1]  # 阴影层
-    assert "你好" in dls[2] and "\\blur" not in dls[2]  # 文本层
+    assert len(dls) == 1
+    assert "\\blur" not in dls[0] and "\\p1" not in dls[0]
+    assert "你好" in dls[0]
 
 
 def test_build_ass_srt_two_layer(tmp_path):

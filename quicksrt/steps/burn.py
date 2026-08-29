@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -124,18 +125,36 @@ def _parse_shadow(value: Any) -> Shadow:
 def _style_block(
     width: int, height: int, cfg_style: dict, fontsize: int, margin_v: int, margin_h: int,
     name: str = "Default", font_name: str | None = None, bold: bool = False, italic: bool = False,
-    color: str | None = None,
+    color: str | None = None, *, box: bool = False, box_color: str | None = None,
+    box_padding: float = 0.0,
 ) -> str:
+    """生成 Style 行。box=True 时启用 BorderStyle=3（libass box）：
+
+    背景由渲染器按文本实际范围绘制（严格贴合文本，含内边距），
+    背景色走 OutlineColour（\2c，含 alpha）——libass 在 Shadow≠0 时
+    把 box 本体渲染到 outline 槽、1px 偏移副本渲染到 BackColour 槽，
+    因此两者写同一颜色、Shadow 固定 1（偏移副本与本体几乎重叠，同色不可见）；
+    此模式下阴影/描边配置被忽略（背景替代其可读性作用）。
+    """
     font = font_name or cfg_style.get("zh_font_name", "sans-serif")
     color = util.parse_ass_color(color or cfg_style.get("zh_color", "#FFFFFF"))
     shadow = _parse_shadow(cfg_style.get("shadow"))
-    # BackColour = 阴影色（含 alpha）；Shadow 字段在双层模糊或 x/y 不等偏移时由内联/阴影层控制，写 0
-    style_shadow = 0 if (shadow.blur > 0 or shadow.dx != shadow.dy) else shadow.dx
+    if box:
+        box_color = box_color or _bg_ass_color(cfg_style)
+        outline_color, back_color, border_style = box_color, box_color, 3
+        outline, style_shadow = box_padding, 1
+    else:
+        # BackColour = 阴影色（含 alpha）；Shadow 字段在双层模糊或 x/y 不等偏移时由内联/阴影层控制，写 0
+        outline_color = util.parse_ass_color(cfg_style.get("outline_color", "#000000"))
+        back_color = shadow.color
+        border_style = 1
+        outline = cfg_style.get("outline", 2)
+        style_shadow = 0 if (shadow.blur > 0 or shadow.dx != shadow.dy) else shadow.dx
     return (
         f"Style: {name},{font},{fontsize},{color},&H000000FF,"
-        f"{util.parse_ass_color(cfg_style.get('outline_color', '#000000'))},{shadow.color},"
-        f"{1 if bold else 0},{1 if italic else 0},0,0,100,100,0,0,1,"
-        f"{cfg_style.get('outline', 2)},{_fmt(style_shadow)},"
+        f"{outline_color},{back_color},"
+        f"{1 if bold else 0},{1 if italic else 0},0,0,100,100,0,0,{border_style},"
+        f"{_fmt(outline)},{_fmt(style_shadow)},"
         f"2,{margin_h},{margin_h},{margin_v},1"
     )
 
@@ -151,48 +170,29 @@ def _style_mode(cfg_style: dict) -> tuple[str, str]:
     return mode, primary
 
 
-# 背景块定位常量（em 相对字号，Noto Sans CJK 实测：行距=1.0em，字形底距块底 0.167em）
-_BG_LINE_PITCH = 1.0     # 行距 = 字号
-_BG_GLYPH_EM = 0.8       # 字形高（含下行空隙）≈ 0.8em
-_BG_DESCENT = 0.167      # 末行字形底到文本块底的空隙
+def _bg_ass_color(cfg_style: dict) -> str:
+    """解析 bg_color（CSS 颜色）-> ASS &HAABBGGRR，并对 alpha 做平方根校正。
+
+    libass 的 BorderStyle=3 box 实际渲染为 box 本体 + 1px 偏移副本两层叠加
+    （\bord 内边距下 box 走 OutlineColour，副本走 BackColour），
+    视觉不透明度 = 1 - (a'/255)²。令其等于配置语义 1-a/255，解得
+    a' = 255·√(a/255)，使配置的透明度（如 rgba(0,0,0,0.5) 半透明黑）在最终渲染中精确生效。
+    """
+    color = util.parse_ass_color(cfg_style.get("bg_color", "rgba(0, 0, 0, 0.5)"))
+    a = int(color[2:4], 16)  # &HAA BB GG RR
+    a = round(255 * math.sqrt(a / 255))
+    return "&H" + f"{a:02X}" + color[4:10]
 
 
 def _bg_color_parts(bg_color: str) -> tuple[str, str]:
-    """拆分 &HAABBGGRR -> (\1c 颜色, \1a alpha)。"""
+    """拆分 ASS &HAABBGGRR -> (\1c 颜色, \1a alpha)，供内联颜色覆盖使用。"""
     c = bg_color.strip()
     return "&H" + c[4:10], "&H" + c[2:4]
 
-def _bg_rect(w: float, h: float) -> str:
-    """直角矩形 drawing 路径（原点在块左上，\an2\pos 定位左下角）。"""
-    return f"m 0 0 l {w:.2f} 0 l {w:.2f} {h:.2f} l 0 {h:.2f} l 0 0"
 
-
-def _bg_dialogue(it: dict, width: int, height: int, fontsize: int, en_size: int,
-                 margin_v: int, margin_h: int, cfg_style: dict, mode: str, primary_lang: str) -> str:
-    """背景块 Dialogue：全宽半透明矩形，紧贴文本块（分层渲染，先于文本绘制）。
-
-    libass 实测行为：行内 drawing 配合 \\an2\\pos(W/2, y) 时，块精确渲染为
-    x 0..W（1:1 像素，与字号无关）、底边对齐 \\pos 的 y。
-    """
-    pad = float(cfg_style.get("bg_padding_ratio", 0.35)) * fontsize
-    # 每行字号：主语言行用 fontsize，副语言行用 en_size（双语时副语言在后）
-    p_lines = it[primary_lang].count("\n") + 1
-    pitches = [fontsize] * p_lines
-    if mode == "bilingual":
-        s_lines = it["en" if primary_lang == "zh" else "zh"].count("\n") + 1
-        pitches += [en_size] * s_lines
-    last = pitches[-1]
-    # 块高 = 前 n-1 行行距和 + 末行字形高 + 上下内边距；块底 = 文本块底减末行 descent 空隙再加下内边距
-    block_h = sum(pitches[:-1]) + _BG_GLYPH_EM * last + 2 * pad
-    block_bottom = height - margin_v - _BG_DESCENT * last + pad
-    bg_color = util.parse_ass_color(cfg_style.get("bg_color", "rgba(0, 0, 0, 0.5)"))
-    color, alpha = _bg_color_parts(bg_color)
-    return (
-        f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,"
-        f"{{\\an2\\pos({width / 2:.1f},{block_bottom:.2f})}}"
-        f"{{\\1c{color}&\\1a{alpha}&\\3a&HFF&\\4a&HFF&}}"
-        f"{{\\p1}}{_bg_rect(width, block_h)}{{\\p0}}"
-    )
+def _bg_bord(cfg_style: dict, fontsize: float) -> float:
+    """box 内边距（\bord 像素值）：bg_padding_ratio × 字号。"""
+    return float(cfg_style.get("bg_padding_ratio", 0.35)) * fontsize
 
 
 def _lang_color(cfg_style: dict, lang: str) -> str:
@@ -296,6 +296,11 @@ def build_ass_items(items: list[dict], cfg_style: dict, probe: dict,
     p_shear = _lang_shear(cfg_style, primary_lang)
     s_shear = _lang_shear(cfg_style, secondary_lang)
 
+    bg_enabled = bool(cfg_style.get("bg_enabled", False))
+    bg_color = _bg_ass_color(cfg_style) if bg_enabled else None
+    bg_pad_p = _bg_bord(cfg_style, fontsize) if bg_enabled else 0.0
+    bg_pad_s = _bg_bord(cfg_style, en_size) if bg_enabled else 0.0
+
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -305,10 +310,10 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", p_font, p_bold, p_italic, color=p_color)}
+{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", p_font, p_bold, p_italic, color=p_color, box=bg_enabled, box_color=bg_color, box_padding=bg_pad_p)}
 """
     if mode == "bilingual":
-        header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "Secondary", s_font, s_bold, s_italic, color=s_color) + "\n"
+        header += _style_block(width, height, cfg_style, en_size, margin_v, margin_h, "Secondary", s_font, s_bold, s_italic, color=s_color, box=bg_enabled, box_color=bg_color, box_padding=bg_pad_s) + "\n"
     header += "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
 
     shadow = _parse_shadow(cfg_style.get("shadow"))
@@ -316,6 +321,25 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
     lines = [header]
     for it in items:
         primary = _ass_escape(it[primary_lang]).replace("\n", "\\N")
+        if bg_enabled:
+            # 背景模式：BorderStyle=3 box 随文本渲染（libass 按实际文本范围绘制），
+            # 每行内联 \bord 设置按各自字号的内边距；阴影层/描边被 box 替代
+            ov_p = f"\\bord{_fmt(bg_pad_p)}"
+            if p_shear is not None:
+                ov_p += f"\\fax{p_shear}"
+            primary = f"{{{ov_p}}}{primary}"
+            text = primary
+            if mode == "bilingual":
+                ov_s = f"\\bord{_fmt(bg_pad_s)}"
+                if s_shear is not None:
+                    ov_s += f"\\fax{s_shear}"
+                secondary = _ass_escape(it[secondary_lang]).replace("\n", "\\N")
+                secondary = f"{{{ov_s}}}{secondary}"
+                text += f"\\N{{\\rSecondary}}{secondary}"
+            lines.append(
+                f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{text}"
+            )
+            continue
         if p_shear is not None:
             primary = f"{{\\fax{p_shear}}}{primary}"
         if mode == "bilingual":
@@ -348,10 +372,6 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
                 if mode == "bilingual":
                     text += f"\\N{{\\rSecondary}}{secondary}"
             shadow_line = text_line = f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{text}"
-        if bool(cfg_style.get("bg_enabled", False)):
-            lines.append(
-                _bg_dialogue(it, width, height, fontsize, en_size, margin_v, margin_h, cfg_style, mode, primary_lang)
-            )
         lines.append(shadow_line)
         if shadow.blur > 0:
             lines.append(text_line)
@@ -365,6 +385,9 @@ def build_ass(srt_path: Path, cfg_style: dict, probe: dict) -> str:
     margin_h = round(width * 0.03)
     font = cfg_style.get("zh_font_name", _DEFAULT_FONT)
     font = _ensure_font(_resolve_font(font, False, False)[0], "zh")
+    bg_enabled = bool(cfg_style.get("bg_enabled", False))
+    bg_color = _bg_ass_color(cfg_style) if bg_enabled else None
+    bg_pad = _bg_bord(cfg_style, fontsize) if bg_enabled else 0.0
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -374,7 +397,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", font)}
+{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", font, box=bg_enabled, box_color=bg_color, box_padding=bg_pad)}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -401,7 +424,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         text = _ass_escape(parts[2].replace("\r", ""))
         text = text.replace("\n", "\\N")
         ts_head = f"Dialogue: 0,{_ass_ts(to_sec(ts[0]))},{_ass_ts(to_sec(ts[1]))},Default,,0,0,0,,"
-        if shadow.blur > 0:
+        if bg_enabled:
+            text = f"{{\\bord{_fmt(bg_pad)}}}{text}"
+            lines.append(ts_head + text)
+        elif shadow.blur > 0:
             text_layer = f"{{\\pos({width / 2:.1f},{text_bottom:.1f})}}{text}"
             shadow_layer = (
                 f"{{\\pos({width / 2 + shadow.dx:.1f},{text_bottom + shadow.dy:.1f})"
