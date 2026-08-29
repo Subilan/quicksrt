@@ -335,10 +335,10 @@ def test_bg_ass_color_alpha_compensation():
 
 
 def test_parse_bg_unset():
-    """未配置：禁用；启用缺省参数 padding=0.35、默认半透明黑。"""
+    """未配置：禁用；启用缺省参数 padding=0.35（x/y 同值）、默认半透明黑。"""
     bg = _parse_bg({})
     assert bg.enabled is False
-    assert bg.padding == 0.35
+    assert (bg.padding_x, bg.padding_y) == (0.35, 0.35)
     assert bg.color == "&HB5000000"  # 默认色 + alpha 校正
 
 
@@ -350,21 +350,35 @@ def test_parse_bg_bool():
 def test_parse_bg_table_appears_enables():
     """表出现即启用；各键可省（空表用默认参数）。"""
     bg = _parse_bg({"bg": {}})
-    assert (bg.enabled, bg.padding, bg.color) == (True, 0.35, "&HB5000000")
+    assert (bg.enabled, bg.padding_x, bg.padding_y, bg.color) == (True, 0.35, 0.35, "&HB5000000")
     bg = _parse_bg({"bg": {"padding": 0.2, "color": "#000000"}})
-    assert (bg.enabled, bg.padding, bg.color) == (True, 0.2, "&H00000000")
+    assert (bg.enabled, bg.padding_x, bg.padding_y, bg.color) == (True, 0.2, 0.2, "&H00000000")
     # 只写一个键，另一个走默认
     bg = _parse_bg({"bg": {"padding": 0.4}})
-    assert (bg.enabled, bg.padding, bg.color) == (True, 0.4, "&HB5000000")
+    assert (bg.enabled, bg.padding_x, bg.padding_y, bg.color) == (True, 0.4, 0.4, "&HB5000000")
+
+
+def test_parse_bg_padding_xy():
+    """padding_x/padding_y 分别覆盖水平/垂直内边距，可混合 padding 基底使用。"""
+    bg = _parse_bg({"bg": {"padding_x": 0.2, "padding_y": 0.45}})
+    assert (bg.padding_x, bg.padding_y) == (0.2, 0.45)
+    # padding 为基底，单方向键只覆盖对应维
+    bg = _parse_bg({"bg": {"padding": 0.3, "padding_y": 0.45}})
+    assert (bg.padding_x, bg.padding_y) == (0.3, 0.45)
+    bg = _parse_bg({"bg": {"padding_x": 0.2}})
+    assert (bg.padding_x, bg.padding_y) == (0.2, 0.35)
+    # 负值拒绝
+    with pytest.raises(RuntimeError, match="bg.padding"):
+        _parse_bg({"bg": {"padding_y": -0.1}})
 
 
 def test_parse_bg_legacy_keys():
     """旧式独立键 bg_enabled/bg_color/bg_padding_ratio 兼容；bg 表优先。"""
     bg = _parse_bg({"bg_enabled": True, "bg_padding_ratio": 0.3})
-    assert (bg.enabled, bg.padding) == (True, 0.3)
+    assert (bg.enabled, bg.padding_x, bg.padding_y) == (True, 0.3, 0.3)
     assert _parse_bg({"bg_enabled": False}).enabled is False
     bg = _parse_bg({"bg_enabled": True, "bg": {"padding": 0.2}})
-    assert (bg.enabled, bg.padding) == (True, 0.2)
+    assert (bg.enabled, bg.padding_x, bg.padding_y) == (True, 0.2, 0.2)
 
 
 def test_parse_bg_invalid():
@@ -393,6 +407,16 @@ def test_build_ass_bg_inline_bord():
     ass = build_ass_items(_ITEMS, style, _PROBE)
     dl = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,"))
     assert "{\\bord18.9}你好\\N{\\rSecondary}{\\bord11.2}hello" in dl
+
+
+def test_build_ass_bg_xy_padding():
+    """padding_x/padding_y 不同：内联 \\xbord/\\ybord 分维度，Style Outline 用垂直值。"""
+    style = {**_STYLE, "bg": {"padding_x": 0.1, "padding_y": 0.35}}
+    ass = build_ass_items(_ITEMS, style, _PROBE)
+    # 垂直 0.35×54=18.9 进 Style Outline，水平由内联 \xbord 覆盖（0.1×54=5.4）
+    assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&HB5000000,&HB5000000,0,0,0,0,100,100,0,0,3,18.9,1,2" in ass
+    dl = next(l for l in ass.splitlines() if l.startswith("Dialogue: 0,"))
+    assert "{\\xbord5.4\\ybord18.9}你好\\N{\\rSecondary}{\\xbord3.2\\ybord11.2}hello" in dl
 
 
 def test_build_ass_bg_mono():
