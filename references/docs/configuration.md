@@ -134,8 +134,8 @@ DeepSeek 翻译为简体中文。使用结构化输出（`json_object` 模式）
 | `en_italic` | `false` | 英文假斜体 |
 | `en_color` | `""` | 英文独立颜色（CSS 颜色）；留空时英文跟随 `zh_color` |
 | `en_italic_shear` | `""` | 英文假斜体倾角（同 `zh_italic_shear`，作用于英文） |
-| `bg_enabled` | `false` | 字幕背景：全宽半透明矩形条（分层渲染：背景 Dialogue + 文本 Dialogue），随字幕显示 |
-| `bg_color` | `"rgba(0, 0, 0, 0.5)"` | 背景颜色（CSS 颜色，如 `rgba(0,0,0,0.5)` 半透明黑，或 `#00000080`） |
+| `bg_enabled` | `false` | 字幕背景：libass `BorderStyle=3` box，背景由渲染器按文本实际渲染范围绘制（严格贴合文本，非全宽），随字幕显示；开启后阴影/描边配置被忽略（背景替代其可读性作用） |
+| `bg_color` | `"rgba(0, 0, 0, 0.5)"` | 背景颜色（CSS 颜色，如 `rgba(0,0,0,0.5)` 半透明黑，或 `#00000080`）；透明度已按 box 双层叠加效应做平方根校正，配置值即最终视觉效果 |
 | `bg_padding_ratio` | `0.35` | 背景内边距相对字号的比例 |
 
 ### `[preview]`
