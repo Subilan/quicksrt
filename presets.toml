@@ -46,8 +46,11 @@ outline = 0
 # 继承 default 为基底，只覆盖差异项（无覆盖 = 只写 extends 引用；全量覆盖 = 不写 extends 独立定义）
 extends = "default"
 outline = 0
-shadow = {blur=5, dx=0,dy=2, color="rgba(0,0,0,.3)"}
-primary_font_name = "IBM Plex Sans SC:style=SemiBold"
+shadow = {blur=5, dx=0,dy=2, color="rgba(0,0,0,.5)"}
+# 直接写 fontconfig 已注册的别名全名，确保精确定位 Medium 字面：
+# 旧写法 ":style=SemiBold" 匹配不到全名，会回退为 family+粗体标志，
+# 实际渲染成 Bold（比声明的 SemiBold 还重一档）
+primary_font_name = "IBM Plex Sans SC Medm"
 # 副行字体与样式：直接填斜体变体全名，精确使用真斜体
 secondary_font_name = "IBM Plex Sans"
 secondary_italic = true
