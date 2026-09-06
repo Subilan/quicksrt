@@ -49,6 +49,7 @@ uv run quicksrt extract
 uv run quicksrt transcribe
 uv run quicksrt translate
 uv run quicksrt refine   # 显示层优化（拆句/标点/接缝/双语）
+uv run quicksrt refine --manual 人工精修稿.srt   # 人工精修稿导入（可选，同一步骤的特殊路径，见下）
 uv run quicksrt srt
 uv run quicksrt burn
 uv run quicksrt preview --res 1080p   # 纯色背景渲染单条字幕 PNG 预览（样式预览，默认第 1 条，--index 指定）
@@ -66,6 +67,8 @@ uv run quicksrt clean -y                 # 删除中间产物
 分步命令默认操作最新的 work 目录，多视频时用 `-i <video_id>` 指定。`--force` 强制重跑单环节；中断后重跑同一命令会从断点继续（ASR 任务按 task_id 恢复轮询，翻译按批次缓存跳过）。
 
 翻译环节使用结构化输出（`json_object` 模式 + pydantic 逐条校验），批次并行翻译（`[translate] max_concurrency`）。语言方向由 `[translate] source_lang`（缺省取 `[asr] language`）→ `target_lang` 决定，任意语言组合均可。可通过 `[translate] context_template` 注入视频上下文（占位符取 meta.json 字段，如 `{title}` `{description}` `{uploader}` `{url}`，缺失渲染为空串；修改模板会触发重译）。
+
+人工精修稿：自动 refine 后，可把双语 SRT（主语言行在上）在剪辑软件里手工精调（增删/合并/改时间/改措辞均允许），再用 `quicksrt refine --manual <file.srt>` 逐条原样回灌 refined.json（不做拆句/标点/接缝处理），`srt`/`burn`/`preview` 自动消费该结果。此后不带 `--manual` 的自动 refine 默认不会覆盖人工稿（需 `--force` 才覆盖，覆盖前自动备份）；详见 `references/docs/refine.md`。
 
 已知限制：硬烧录必然重编码，画质损失通过 CRF 18 + slow preset 控制；源视频为 HDR 时未做色域转换，输出按 yuv420p 处理。
 

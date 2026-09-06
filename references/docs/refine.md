@@ -102,6 +102,20 @@ refine 处理一对语言（源/目标，配置见 `[asr] language` 与 `[transl
 | `primary_lang` / `secondary_lang` | `[style]` | 缺省 target/source | 主/副语言码（决定取哪个字段、谁主拆） |
 | `secondary_font_ratio` | `[style]` | 0.6 | 副行字号相对主行字号的比例 |
 
+## 人工精修稿（manual refine，可选）
+
+自动 refine 的输出适合直接显示；若需要进一步人工雕琢，工作流为：自动 refine → `quicksrt srt` 得到双语 `subs.srt` → 在剪辑软件里手工精调（增删/合并/改时间/改措辞均允许）→ 导出的双语 SRT 用同一步骤的特殊路径导回：
+
+```bash
+quicksrt refine --manual 人工精修稿.srt
+```
+
+- `--manual` 时跳过全部自动处理（拆句/标点/接缝），把每条字幕的文本与时间 **1:1 原样**写入 `refined.json`；`srt` / `burn` / `preview` 无需感知差异，继续按原样消费 `refined.json`。
+- 输入要求：双语 SRT，每条恰好两行（第一行主语言、第二行副语言）；容忍 BOM/CRLF、块序号、文本行 `<b></b>` 包裹、时间毫秒任意精度。结构错误会报错并指明块位置；结束早于开始或相邻字幕重叠仅给出 warning。
+- 溯源：refined.json 的 `src_id` 按副语言文本对导入前文件做相似对齐尽力继承（条数可增删/合并），匹配不上的标 `-1`。`src_id` 仅用于溯源，显示层（srt/burn/preview）不消费。
+- 断点：导入内容有变化时重置 meta 中 `srt` / `burn` 断点，需重新执行 `quicksrt srt` 与 `quicksrt burn` 让下游产物跟上人工稿。
+- 防覆盖：meta 记录 `manual_refine` 指纹。此后不带 `--manual` 的自动 refine 默认**跳过**（日志提示），避免自动结果冲掉人工稿；确需覆盖时加 `--force`（覆盖前自动把旧文件备份为 `refined.json.bak.pre-auto-*`）。
+
 ## 断点与重跑
 
 - refine 有独立断点：`meta.json` 的 `steps.refine = "done"`，且 `meta.refine` 记录了 `{max_chars, min_gap, strip_end_punct, split_on_space, primary_lang, src_lang, tgt_lang, rule}`；任一参数（含语言配置、语言规则）变化后旧产物自动失效，重跑 refine 即可。

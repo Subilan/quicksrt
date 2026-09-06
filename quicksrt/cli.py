@@ -162,15 +162,18 @@ def srt(
 def refine(
     video_id: str | None = typer.Option(None, "--video-id", "-i"),
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
-    force: bool = typer.Option(False, "--force", "-f"),
+    force: bool = typer.Option(False, "--force", "-f", help="忽略断点强制重跑"),
+    manual: Path | None = typer.Option(None, "--manual", help="人工精修稿双语 SRT（主语言行在上）：逐条原样导入 refined.json，不做拆句/标点/接缝处理"),
 ):
-    """显示层后处理：拆句/标点/接缝优化，产出 refined.json（双语，字段为语言码）"""
+    """显示层后处理：拆句/标点/接缝优化，产出 refined.json（双语，字段为语言码）；--manual 时改走人工精修稿特殊路径（不覆盖已有自动稿以外的产物，自动 refine 之后再次运行需 --force）"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
+    if manual is not None and not manual.exists():
+        raise typer.BadParameter(f"人工精修稿不存在: {manual}")
     if force:
         _reset_step(workdir, refine_step.STEP)
-    path = refine_step.run(cfg, workdir, log, force=force)
+    path = refine_step.run(cfg, workdir, log, force=force, manual_srt=manual)
     log.info("refine 完成: %s", path)
 
 

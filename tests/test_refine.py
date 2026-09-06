@@ -227,6 +227,9 @@ class _Cfg:
     def primary_lang(self):
         return self._primary
 
+    def secondary_lang(self):
+        return self._tgt if self._primary == self._src else self._src
+
     def section(self, name):
         return {} if name == "refine" else {}
 
@@ -320,3 +323,121 @@ def test_run_primary_not_in_pair_raises(tmp_path):
 
     with _pytest.raises(RuntimeError, match="显示主语言"):
         run(_Cfg("en", "zh", primary="fr"), workdir, _LOG, force=True)
+
+
+# ---------- 人工精修稿（manual refine）----------
+
+from quicksrt.steps.refine import (  # noqa: E402
+    assign_src_ids,
+    parse_bilingual_srt,
+)
+
+
+def test_parse_bilingual_srt_basic():
+    text = (
+        "1\r\n"
+        "00:00:00,000 --> 00:00:01,800\r\n"
+        "<b>你好</b>\r\n"
+        "<b>hello</b>\r\n"
+        "\r\n"
+        "2\n"
+        "00:00:02,000 --> 00:00:03,816\n"
+        "你好啊\n"
+        "hello there\n"
+    )
+    cues, warnings = parse_bilingual_srt(text)
+    assert warnings == []
+    assert cues == [(0.0, 1.8, "你好", "hello"), (2.0, 3.816, "你好啊", "hello there")]
+
+
+def test_parse_bilingual_srt_missing_second_line_raises():
+    text = "1\n00:00:01,000 --> 00:00:02,000\n只有一行\n"
+    with pytest.raises(ValueError, match="两行文本"):
+        parse_bilingual_srt(text)
+
+
+def test_parse_bilingual_srt_swapped_time_warns():
+    text = "1\n00:00:05,000 --> 00:00:03,000\na\nb\n"
+    cues, warnings = parse_bilingual_srt(text)
+    assert cues == [(3.0, 5.0, "a", "b")]
+    assert any("已交换" in w for w in warnings)
+
+
+def test_parse_bilingual_srt_overlap_warns():
+    text = ("1\n00:00:00,000 --> 00:00:03,000\na\nb\n\n"
+            "2\n00:00:02,000 --> 00:00:04,000\nc\nd\n")
+    cues, warnings = parse_bilingual_srt(text)
+    assert len(cues) == 2
+    assert any("重叠" in w for w in warnings)
+
+
+def test_parse_bilingual_srt_bad_block_raises():
+    with pytest.raises(ValueError, match="找不到时间行"):
+        parse_bilingual_srt("随便一段文字\n没有时间轴\n")
+
+
+def test_assign_src_ids_best_match_no_reuse_new_minus_one():
+    ref_texts = ["cat sat on mat", "dog barked loudly", "bird sang"]
+    ref_src_ids = [10, 11, 12]
+    # 逐条取全局最优；同文本只继承一次；无相似文本的新条标 -1
+    out = assign_src_ids(["cat sat on mat", "cat sat on mat", "fish swims"], ref_texts, ref_src_ids)
+    assert out == [10, -1, -1]  # 第二条无法再复用 ref[0]（已被占用）且无其它相似
+
+
+def test_import_manual_full_flow(tmp_path, caplog):
+    """自动 refine -> 人工稿导入 -> 自动 refine 防覆盖守卫 -> --force 覆盖，全链路。"""
+    from quicksrt.steps.refine import run
+
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    _write_segments(workdir, "en", ["hello there", "goodbye now"])
+    _write_segments(workdir, "zh", ["你好啊", "再见啦"])
+    cfg = _Cfg("en", "zh")
+
+    # 1) 自动 refine
+    auto_path = run(cfg, workdir, _LOG, force=True)
+    auto_items = json.loads(auto_path.read_text(encoding="utf-8"))
+    assert len(auto_items) == 2 and all(it["src_id"] >= 0 for it in auto_items)
+
+    # 2) 人工稿导入（无 <b>、CRLF、时间与文本与自动稿一致 -> src_id 全量溯源继承）
+    manual_srt = workdir / "manual.srt"
+    manual_srt.write_text(
+        "1\r\n00:00:00,000 --> 00:00:01,800\r\n你好啊\r\nhello there\r\n\r\n"
+        "2\r\n00:00:02,000 --> 00:00:03,800\r\n再见啦\r\ngoodbye now\r\n",
+        encoding="utf-8",
+    )
+    out = run(cfg, workdir, _LOG, manual_srt=manual_srt)
+    manual_items = json.loads(out.read_text(encoding="utf-8"))
+    assert len(manual_items) == 2
+    assert manual_items == [
+        {"id": 0, "src_id": auto_items[0]["src_id"], "start": 0.0, "end": 1.8,
+         "zh": "你好啊", "en": "hello there"},
+        {"id": 1, "src_id": auto_items[1]["src_id"], "start": 2.0, "end": 3.8,
+         "zh": "再见啦", "en": "goodbye now"},
+    ]
+    meta = json.loads((workdir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["manual_refine"]["source"] == "manual.srt"
+    assert meta["steps"]["refine"] == "done"
+    assert meta["steps"]["srt"] is None and meta["steps"]["burn"] is None
+
+    # 3) 相同人工稿重复导入：幂等，不新增备份
+    n_bak = len(list(workdir.glob("refined.json.bak.pre-manual-*")))
+    run(cfg, workdir, _LOG, manual_srt=manual_srt)
+    assert len(list(workdir.glob("refined.json.bak.pre-manual-*"))) == n_bak
+
+    # 4) 自动 refine（参数已变/断点失效，且未 --force）：守卫拦截，不覆盖人工稿
+    mpath = workdir / "meta.json"
+    m = json.loads(mpath.read_text(encoding="utf-8"))
+    m["refine"] = {"changed": True}  # 使 step_done 失配
+    mpath.write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
+    with caplog.at_level(logging.WARNING):
+        run(cfg, workdir, _LOG)
+    assert any("人工精修稿" in r.message for r in caplog.records)
+    assert json.loads(out.read_text(encoding="utf-8")) == manual_items
+
+    # 5) --force 自动覆盖：备份旧稿、清除 manual_refine 标记
+    run(cfg, workdir, _LOG, force=True)
+    assert list(workdir.glob("refined.json.bak.pre-auto-*")), "覆盖前应有备份"
+    meta = json.loads(mpath.read_text(encoding="utf-8"))
+    assert "manual_refine" not in meta
+    assert json.loads(out.read_text(encoding="utf-8")) == auto_items
