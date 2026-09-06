@@ -26,6 +26,24 @@ _ITEMS = [
 ]
 
 
+# v2 双语 fixture：主块=zh（第一句/第二句）、副块=en
+_V2_BILINGUAL = (
+    "1\n00:00:01,000 --> 00:00:02,000\n第一句\n--\nfirst\n\n"
+    "2\n00:00:03,000 --> 00:00:04,000\n第二句\n--\nsecond\n"
+)
+# mono+en fixture：主块即英文
+_V2_EN_MONO = (
+    "1\n00:00:01,000 --> 00:00:02,000\nfirst\n\n"
+    "2\n00:00:03,000 --> 00:00:04,000\nsecond\n"
+)
+
+
+def _write_v2(workdir, text=_V2_BILINGUAL):
+    """写 subs.srt（v2）作为 preview.run 的数据源。"""
+    workdir.mkdir(parents=True, exist_ok=True)
+    (workdir / "subs.srt").write_text(text, encoding="utf-8")
+
+
 # ---------- resolve_size ----------
 
 def test_resolve_size_presets():
@@ -90,7 +108,7 @@ def test_inline_image_escape_custom_width(tmp_path):
 def test_run_builds_ass_and_calls_ffmpeg(tmp_path, monkeypatch):
     workdir = tmp_path / "work"
     workdir.mkdir()
-    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    _write_v2(workdir)
     (workdir / "meta.json").write_text(json.dumps({"title": "My Video"}), encoding="utf-8")
 
     class FakeCfg:
@@ -132,7 +150,7 @@ def test_run_builds_ass_and_calls_ffmpeg(tmp_path, monkeypatch):
 def test_run_custom_background(tmp_path, monkeypatch):
     workdir = tmp_path / "work"
     workdir.mkdir()
-    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    _write_v2(workdir)
     (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
 
     class FakeCfg:
@@ -169,7 +187,7 @@ def test_run_preset_passed_to_style_config(tmp_path, monkeypatch):
     """run 把 --preset 传给 style_config（临时切换预设）。"""
     workdir = tmp_path / "work"
     workdir.mkdir()
-    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    _write_v2(workdir)
     (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
 
     seen = {}
@@ -198,7 +216,7 @@ def test_run_preset_passed_to_style_config(tmp_path, monkeypatch):
 def test_run_background_override(tmp_path, monkeypatch):
     workdir = tmp_path / "work"
     workdir.mkdir()
-    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    _write_v2(workdir)
     (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
 
     class FakeCfg:
@@ -224,7 +242,7 @@ def test_run_background_override(tmp_path, monkeypatch):
     assert "color=c=white:s=1280x720:d=1" in calls[0]  # CLI 参数优先于 config
 
 
-def test_run_without_refined(tmp_path):
+def test_run_without_subs_srt(tmp_path):
     workdir = tmp_path / "work"
     workdir.mkdir()
 
@@ -238,7 +256,10 @@ def test_run_without_refined(tmp_path):
         def section(self, name):
             return {}
 
-    with pytest.raises(FileNotFoundError, match="refined.json"):
+        def style_config(self, preset=None):
+            return {}
+
+    with pytest.raises(FileNotFoundError, match="subs.srt"):
         preview.run(FakeCfg(), workdir, _LOG, res="720p")
 
 
@@ -260,7 +281,7 @@ def test_parse_bbox_none():
 def test_run_crop(tmp_path, monkeypatch):
     workdir = tmp_path / "work"
     workdir.mkdir()
-    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    _write_v2(workdir)
     (workdir / "meta.json").write_text(json.dumps({"title": "My Video"}), encoding="utf-8")
 
     class FakeCfg:
@@ -318,7 +339,7 @@ def test_run_crop_with_background(tmp_path, monkeypatch):
     """crop 指定 --background：用它作截取背景色，裁剪保留纯色背景（不抠透明）。"""
     workdir = tmp_path / "work"
     workdir.mkdir()
-    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    _write_v2(workdir)
     (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
 
     class FakeCfg:
@@ -365,7 +386,7 @@ def test_run_crop_with_background(tmp_path, monkeypatch):
 def test_run_crop_with_index(tmp_path, monkeypatch):
     workdir = tmp_path / "work"
     workdir.mkdir()
-    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    _write_v2(workdir, _V2_EN_MONO)
     (workdir / "meta.json").write_text(json.dumps({}), encoding="utf-8")
 
     class FakeCfg:
@@ -373,7 +394,7 @@ def test_run_crop_with_index(tmp_path, monkeypatch):
             return (self.section("style").get("primary_lang") or "zh").strip() or "zh"
 
         def secondary_lang(self):
-            return (self.section("style").get("secondary_lang") or "en").strip() or "en"
+            return (self.section("style").get("secondary_lang") or "zh").strip() or "zh"
 
         output_dir = tmp_path / "dist"
 
@@ -681,7 +702,7 @@ def test_run_preset_in_output_name(tmp_path, monkeypatch):
     """多预设渲染时文件名带预设后缀，避免互相覆盖。"""
     workdir = tmp_path / "work"
     workdir.mkdir()
-    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    _write_v2(workdir)
     (workdir / "meta.json").write_text(json.dumps({"title": "My Video"}), encoding="utf-8")
 
     class FakeCfg:
@@ -710,7 +731,7 @@ def test_run_crop_preset_in_output_name(tmp_path, monkeypatch):
     """crop + preset：文件名带预设后缀。"""
     workdir = tmp_path / "work"
     workdir.mkdir()
-    (workdir / "refined.json").write_text(json.dumps(_ITEMS, ensure_ascii=False), encoding="utf-8")
+    _write_v2(workdir)
     (workdir / "meta.json").write_text(json.dumps({"title": "My Video"}), encoding="utf-8")
 
     class FakeCfg:

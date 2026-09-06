@@ -21,7 +21,7 @@ quicksrt 的配置分三层：
 | `primary` | 显示主语言（在上、大字号） | `[style] primary_lang` | 取 `target` |
 | `secondary` | 显示副语言（在下、小字号） | `[style] secondary_lang` | 翻译对中非主语言的那个（通常即 `source`） |
 
-语言码为 BCP-47 风格（`en`/`zh`/`ja`/`ko`…），只作为数据出现于配置、文件名（`segments_<语言码>.json`）与 `refined.json` 字段。样式（`[style]`/`presets.toml`）只描述 primary/secondary 两个显示角色的视觉属性，**与语言无关**——任意语言组合可套用同一套样式。
+语言码为 BCP-47 风格（`en`/`zh`/`ja`/`ko`…），只作为数据出现于配置与文件名（`segments_<语言码>.json`）。样式（`[style]`/`presets.toml`）只描述 primary/secondary 两个显示角色的视觉属性，**与语言无关**——任意语言组合可套用同一套样式。
 
 ---
 
@@ -105,18 +105,19 @@ DeepSeek 翻译。使用结构化输出（`json_object` 模式），每批独立
 
 ### `[srt]`
 
-生成 SRT 时的文本规范化。
+生成基础稿 subs.srt（v2 双语规范，见 `refine.md`）时的文本规范化。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `max_line_chars` | `42` | 单行最大字符数。超过时在标点/空格处断为多行（最多 `max_lines` 行） |
-| `max_lines` | `2` | 单条字幕最多行数 |
+| `max_line_chars` | `42` | 单行最大字符数。超过时在标点/空格处断为多行（最多 `max_lines` 行，无损折行） |
+| `max_lines` | `2` | 主/副语言块各自最多行数 |
 | `min_duration` | `1.0` | 字幕时长下限（秒）。短于此的句子拉长到该值（中文显示下限 1s） |
 | `max_duration` | `0` | 字幕时长上限（秒）。`<=0` 表示不截断（ASR 时长即真实语音时长，截断会让字幕在语音未完时消失） |
+| `block_separator` | `"--"` | v2 分隔行：主语言块与副语言块之间的单独一行。若正文恰会出现整行等于它的内容可改成其它字符串（如 `==`）。变更该值需重新 `srt` 重建基础稿 |
 
 ### `[refine]`
 
-显示层后处理（拆句/标点/接缝），输出双语 `refined.json`，不修改 `segments_<语言码>.json` 原始数据。拆句以显示主语言（`primary_lang`，须为源或目标语言之一）为准，按该语言的规则表拆句。
+（可选）显示层后处理（拆句/标点/接缝），就地改写 subs.srt（v2）。双语能力由 `srt` 提供，跳过本环节直接 burn 亦可。拆句以显示主语言（`[style] primary_lang`）为准，按该语言的规则表拆句。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |

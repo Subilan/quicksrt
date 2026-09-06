@@ -23,8 +23,8 @@ quicksrt/
 │       ├── upload.py      OSS 上传 + 预签名 URL
 │       ├── transcribe.py  阿里云 ASR 转写
 │       ├── translate.py   DeepSeek 翻译
-│       ├── refine.py      显示层后处理
-│       ├── srt.py         SRT 生成
+│       ├── refine.py      可选显示层打磨（就地改写 subs.srt）
+│       ├── srt.py         基础 SRT 生成 / v2 解析写入
 │       ├── burn.py        ASS 生成 + ffmpeg 烧录
 │       └── preview.py     字幕 PNG 预览
 ├── tests/                 单元测试
@@ -46,12 +46,11 @@ quicksrt/
 | `segments_<源语言码>.json` | transcribe | ASR segments（如 `segments_en.json`），统一格式（秒级时间戳），语言码取 `[asr] language` |
 | `segments_<目标语言码>.json` | translate | 翻译 segments（如 `segments_zh.json`），语言码取 `[translate] target_lang`，与源语言按 id 一一对应 |
 | `batches/tr_*.json` | translate | 翻译批次缓存（每批一个文件），支持细粒度断点续跑：重跑只翻译缺失批次 |
-| `refined.json` | refine | 双语条目：`[{id, src_id, start, end, <源语言码>: text, <目标语言码>: text}]`，字段 key 即语言码；拆句/标点/接缝已处理，文本可含 `\n` 表示行内换行。**srt（双语）与 burn/preview 的实际数据源** |
-| `subs.srt` | srt | 规范化 SRT（refined.json 存在时输出双语：主语言在上、副语言在下，顺序由 `[style] primary_lang`/`secondary_lang` 决定） |
+| `subs.srt` | srt | **v2 双语字幕（显示层唯一载体）**：SRT 骨架 + 每条 cue 的「主语言块 + 分隔行（`[srt] block_separator`，默认 `--`）+ 副语言块」，块内行数不限、无分隔行=只有主语言。srt 生成基础稿，refine 可选打磨并就地改写，burn/preview/人工编辑都消费它；refine 不再产出 JSON |
 | `subs.ass` | burn | 按样式配置生成的 ASS（中间产物，调试用） |
 | `preview.ass` / `preview_crop.ass` | preview | 预览用的临时 ASS |
 | `.oss_upload/` | upload | OSS 分片上传断点（重传时跳过已上传分片） |
-| `quicksrt.log` | 各环节 | 环节日志文件（终端输出同时落盘）。extract 及之后的环节写 `work/<id>/quicksrt.log`；download / all 的日志写在 `work/quicksrt.log`（此时视频目录尚未创建） |
+| `quicksrt.log` | 各环节 | 环节日志文件（终端输出同时落盘）。extract 及之后的环节写 `work/<id>/quicksrt.log`；download 的日志写在 `work/quicksrt.log`（此时视频目录尚未创建） |
 
 ### meta.json
 
@@ -66,8 +65,10 @@ quicksrt/
 | `audio_url` | upload | OSS 预签名 URL（ASR 拉取用） |
 | `asr` | transcribe | `{model, language, provider}`，language 即源语言码，用于判断断点是否过期（换模型后重跑） |
 | `translate` | translate | `{model, temperature, source_lang, target_lang, prompt_template, context_template}`，语言方向/模板变更后重译 |
-| `refine` | refine | refine 配置快照，配置变更后自动重跑 |
-| `burn` | burn | 烧录配置快照 `{encoder, crf, preset, style}`，样式/参数变更后自动重烧 |
+| `refine` | refine | refine 参数快照，参数（含 `block_separator`）变更后自动重跑 |
+| `srt` | srt | srt 参数快照（语言、折行、`block_separator`），参数变更后自动重建基础稿 |
+| `subs` | srt/refine | 当前 subs.srt 的 `{owner: "srt"\|"refine", digest}` 指纹，用于覆写守卫（外部编辑不覆盖，--force 才覆盖） |
+| `burn` | burn | 烧录配置快照 `{encoder, crf, preset, style, subs_digest}`；样式/参数/字幕内容（含人工编辑）变更后自动重烧 |
 | `steps` | 各环节 | 环节状态表：`{"download": "done", "extract": "done", ...}`。键存在且值为 `"done"` 表示该环节完成；缺失或为 `null` 表示未完成/已重置 |
 
 ### 断点续跑机制
@@ -76,10 +77,10 @@ quicksrt/
 
 - transcribe：检查 `meta.asr.model` 与当前配置一致（换模型自动重转）
 - translate：按 `batches/` 缓存，缺哪批翻哪批；source/target 语言、prompt/context 模板变更会触发重译
-- refine / burn：保存配置快照，配置变更自动重跑
+- srt / refine / burn：保存配置快照。配置变更自动重跑；burn 另记录 `subs.srt` 内容指纹（人工编辑后重跑即重烧）；srt/refine 覆写前先比对外部修改（指纹不符默认跳过，`--force` 才覆盖）
 - 其余环节：只检查 `steps` 状态与产物文件是否存在
 
-CLI `--force` 把对应环节的 `steps` 重置为 `null` 强制重跑；`all --force` 重置全部环节。
+CLI `--force` 把对应环节的 `steps` 重置为 `null` 强制重跑（分步执行，无 `all` 命令）。
 
 ## dist/
 
@@ -94,6 +95,6 @@ CLI `--force` 把对应环节的 `steps` 重置为 `null` 强制重跑；`all --
 
 ## 中间产物生命周期
 
-- `all` 全链路跑完只保留 `video.mp4`、`audio.wav`、`meta.json`、各 segments、`refined.json`、`subs.srt`；`asr_raw.json`、`asr_task.json`、`batches/`、`.oss_upload/` 属可再生的断点缓存，删除不丢功能（仅下次重跑时需重做对应环节）
+- 各环节产物只保留 `video.mp4`、`audio.wav`、`meta.json`、各 segments、`subs.srt`（+ `subs.srt.bak.*` 备份）；`asr_raw.json`、`asr_task.json`、`batches/`、`.oss_upload/` 属可再生的断点缓存，删除不丢功能（仅下次重跑时需重做对应环节）。全链路分步执行（无 `all` 命令）
 - `quicksrt clean -y` 删除整个 `work/<video_id>/` 目录（全部中间产物）
 - 各环节产物可直接删除以触发该环节重跑（配合断点机制），无需手动改 meta.json

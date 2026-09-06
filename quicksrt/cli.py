@@ -6,10 +6,13 @@
   quicksrt upload           上传 OSS 并生成预签名 URL
   quicksrt transcribe       ASR 转写（语言取 [asr] language）
   quicksrt translate        翻译（[translate] source_lang -> target_lang）
-  quicksrt srt              生成 SRT 字幕
-  quicksrt burn             烧录字幕（libass，不重编码音频）
+  quicksrt srt              生成基础双语 SRT（subs.srt，可直接人工编辑）
+  quicksrt refine           （可选）显示层优化：拆句/标点/接缝（就地改写 subs.srt）
+  quicksrt burn             烧录字幕（libass，输入永远是 subs.srt 当前内容）
   quicksrt preview          纯色背景渲染单条字幕 PNG 预览（字幕样式预览；--crop 输出紧贴文字的裁剪图；--example 用内置示例文本，--example-primary/--example-secondary 手动构造示例文本，均不依赖已有数据；--preset a,b / --all-preset 批量样式预览）
-  quicksrt all <url>        全链路执行
+
+人工精调工作流：机器跑完（可含 refine）后直接编辑 subs.srt（增删条/改时/改文
+均允许），然后重新 quicksrt burn 即可，无需再经过 refine。
 """
 
 from __future__ import annotations
@@ -148,7 +151,7 @@ def srt(
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     force: bool = typer.Option(False, "--force", "-f"),
 ):
-    """由目标语言 segments 生成规范化 subs.srt（refined.json 存在时输出双语）"""
+    """由 segments 生成基础双语 SRT subs.srt（v2 规范：主块 + 分隔行 + 副块）；可直接人工编辑，burn 吃当前文件内容"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
@@ -163,17 +166,14 @@ def refine(
     video_id: str | None = typer.Option(None, "--video-id", "-i"),
     config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
     force: bool = typer.Option(False, "--force", "-f", help="忽略断点强制重跑"),
-    manual: Path | None = typer.Option(None, "--manual", help="人工精修稿双语 SRT（主语言行在上）：逐条原样导入 refined.json，不做拆句/标点/接缝处理"),
 ):
-    """显示层后处理：拆句/标点/接缝优化，产出 refined.json（双语，字段为语言码）；--manual 时改走人工精修稿特殊路径（不覆盖已有自动稿以外的产物，自动 refine 之后再次运行需 --force）"""
+    """（可选）显示层后处理：拆句/标点/接缝优化，就地改写 subs.srt；跳过 refine 直接 burn 亦可（双语能力由 srt 保证）"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
-    if manual is not None and not manual.exists():
-        raise typer.BadParameter(f"人工精修稿不存在: {manual}")
     if force:
         _reset_step(workdir, refine_step.STEP)
-    path = refine_step.run(cfg, workdir, log, force=force, manual_srt=manual)
+    path = refine_step.run(cfg, workdir, log, force=force)
     log.info("refine 完成: %s", path)
 
 
@@ -184,7 +184,7 @@ def burn(
     force: bool = typer.Option(False, "--force", "-f"),
     encoder: str | None = typer.Option(None, "--encoder", "-e", help="覆盖编码器（libx264/libx265/libsvtav1）"),
 ):
-    """烧录字幕到视频，输出到 dist/"""
+    """烧录字幕到视频（输入为 subs.srt 当前内容，含人工编辑），输出到 dist/"""
     cfg = _cfg(config)
     workdir = _workdir(cfg, video_id)
     log = util.setup_logging(workdir)
@@ -192,32 +192,6 @@ def burn(
         _reset_step(workdir, burn_step.STEP)
     out = burn_step.run(cfg, workdir, log, force=force, encoder=encoder)
     log.info("burn 完成: %s", out)
-
-
-@app.command()
-def all(
-    url: str,
-    config: Path = typer.Option(Path("config.toml"), "--config", "-c"),
-    force: bool = typer.Option(False, "--force", "-f", help="忽略所有断点强制重跑"),
-):
-    """全链路：download -> extract -> upload -> transcribe -> translate -> refine -> srt -> burn"""
-    cfg = _cfg(config)
-    log = util.setup_logging(cfg.work_dir)
-    if force:
-        log.warning("--force 会清空所有断点状态")
-    video_id = download_step.run(url, cfg, cfg.work_dir, log)
-    workdir = cfg.work_dir / video_id
-    if force:
-        for step in (extract_step, upload_step, transcribe_step, translate_step, refine_step, srt_step, burn_step):
-            _reset_step(workdir, step.STEP)
-    extract_step.run(cfg, workdir, log)
-    upload_step.run(cfg, workdir, log)
-    transcribe_step.run(cfg, workdir, log)
-    translate_step.run(cfg, workdir, log)
-    refine_step.run(cfg, workdir, log)
-    srt_step.run(cfg, workdir, log)
-    out = burn_step.run(cfg, workdir, log)
-    log.info("全链路完成: %s", out)
 
 
 @app.command()
@@ -325,7 +299,7 @@ def status(
     log.info("url      : %s", meta.get("url", "-"))
     log.info("时长     : %.1fs", meta.get("duration", 0))
     steps = meta.get("steps", {})
-    for name in ("download", "extract", "upload", "transcribe", "translate", "refine", "srt", "burn"):
+    for name in ("download", "extract", "upload", "transcribe", "translate", "srt", "refine", "burn"):
         mark = "✓" if steps.get(name) == "done" else "·"
         log.info("  %s %s", mark, name)
     if meta.get("audio_url"):

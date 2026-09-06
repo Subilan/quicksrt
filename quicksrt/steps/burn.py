@@ -1,13 +1,16 @@
-"""burn：将 SRT 渲染为 ASS 并烧录进视频（libass），音频流 copy 不重编码。
+"""burn：将 subs.srt（v2 双语规范，见 srt 模块）渲染为 ASS 并烧录进视频（libass）。
 
 编码策略：按源视频编码器选择对应编码器（libx264/libx265/libsvtav1），
 CRF 质量模式 + 慢速 preset，尽量降低二次编码损失。
-优先使用 refined.json（双语 ASS），否则回退到 subs.srt 单语。
+
+输入永远只有 subs.srt：按 v2 规范解析出主/副语言块（角色由分隔行界定），
+组装成与语言无关的条目后渲染双语 ASS（主语言在上、副语言在下）。
+副块为空的 cue 只渲染主行；人工编辑（增删条/改时/改文）后直接重跑 burn 即生效。
 
 语言模式（[style] 配置，语言无关）：
 - mode: bilingual（双语，主语言在上、副语言在下）| mono（单语，只显示主语言）
 - primary_lang / secondary_lang: 任意语言码（BCP-47 风格，缺省链见 config.py），
-  从 refined.json 中按语言码取文本；refined.json 字段即语言码（源/目标语言）
+  仅决定 burn 把主/副块映射到哪两个语言码字段，供样式按显示角色取值
 样式按显示角色（primary 主行/secondary 副行）配置，与语言无关：
 primary_font_name/primary_color/primary_bold/primary_italic/primary_italic_shear、
 secondary_font_name/secondary_font_ratio/secondary_bold/secondary_italic/…；
@@ -28,7 +31,6 @@ color 缺省 rgba(0,0,0,0.5)），也支持布尔简写 bg = true/false；
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import re
@@ -37,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import util
+from . import srt as srt_step
 
 STEP = "burn"
 
@@ -346,11 +349,11 @@ def _ensure_font(font: str, ctx: str) -> str:
 def build_ass_items(items: list[dict], cfg_style: dict, probe: dict,
                     mode: str = "bilingual", primary_lang: str = "zh",
                     secondary_lang: str = "en") -> str:
-    """从 refined 条目生成 ASS。
+    """从条目（{start, end, <语言码>: 文本}）生成 ASS。
 
     主语言在上（Default，大字号），双语时副语言在下（Secondary，更小字号）；
-    primary_lang/secondary_lang 为语言码（refined.json 的字段 key），
-    mono 模式只渲染主语言。"""
+    primary_lang/secondary_lang 为语言码（条目字段 key，srt/burn 由 cues_to_items
+    把 v2 主/副块映射到语言码），mono 模式只渲染主语言。副块为空则该条只有主行。"""
     width, height = probe["width"], probe["height"]
     fontsize = max(12, round(height * float(cfg_style.get("font_size_ratio", 0.05))))
     margin_v = round(height * float(cfg_style.get("margin_v_ratio", 0.05)))
@@ -395,10 +398,14 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
     lines = [header]
     for it in items:
         if primary_lang not in it:
-            raise RuntimeError(f"refined.json 条目缺少主语言 {primary_lang!r} 字段")
+            raise RuntimeError(f"条目缺少主语言 {primary_lang!r} 字段")
         if mode == "bilingual" and secondary_lang not in it:
-            raise RuntimeError(f"refined.json 条目缺少副语言 {secondary_lang!r} 字段")
+            raise RuntimeError(f"条目缺少副语言 {secondary_lang!r} 字段")
         primary = _ass_escape(it[primary_lang]).replace("\n", "\\N")
+        # 副块为空的 cue 只渲染主行（人工删除副语言/单语内容）
+        secondary = _ass_escape(it[secondary_lang]).replace("\n", "\\N") if (
+            mode == "bilingual" and it.get(secondary_lang)
+        ) else ""
         if bg.enabled:
             # 背景模式：BorderStyle=3 box 随文本渲染（libass 按实际文本范围绘制），
             # 每行内联 \bord/\xbord\ybord 设置按各自字号的内边距；阴影层/描边被 box 替代
@@ -407,11 +414,10 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
                 ov_p += f"\\fax{p_shear}"
             primary = f"{{{ov_p}}}{primary}"
             text = primary
-            if mode == "bilingual":
+            if secondary:
                 ov_s = _bord_tag(bg_pad_sx, bg_pad_sy)
                 if s_shear is not None:
                     ov_s += f"\\fax{s_shear}"
-                secondary = _ass_escape(it[secondary_lang]).replace("\n", "\\N")
                 secondary = f"{{{ov_s}}}{secondary}"
                 text += f"\\N{{\\rSecondary}}{secondary}"
             lines.append(
@@ -420,10 +426,8 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
             continue
         if p_shear is not None:
             primary = f"{{\\fax{p_shear}}}{primary}"
-        if mode == "bilingual":
-            secondary = _ass_escape(it[secondary_lang]).replace("\n", "\\N")
-            if s_shear is not None:
-                secondary = f"{{\\fax{s_shear}}}{secondary}"
+        if secondary and s_shear is not None:
+            secondary = f"{{\\fax{s_shear}}}{secondary}"
         if shadow.blur > 0:
             # 双层渲染：阴影层（模糊色块，偏移 dx/dy）在文本层之下，正文保持锐利
             # 注意内联颜色不能用 8 位 &HAABBGGRR（libass 不解析），拆成 \1c 6 位 + \1a alpha
@@ -433,7 +437,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
                 f"{{\\pos({width / 2 + shadow.dx:.1f},{text_bottom + shadow.dy:.1f})"
                 f"\\bord0\\1c{sh_color}\\1a{sh_alpha}\\blur{_fmt(shadow.blur)}}}{primary}"
             )
-            if mode == "bilingual":
+            if secondary:
                 text_layer += f"\\N{{\\rSecondary}}{secondary}"
                 shadow_layer += (
                     f"\\N{{\\rSecondary\\bord0\\1c{sh_color}\\1a{sh_alpha}\\blur{_fmt(shadow.blur)}}}{secondary}"
@@ -445,11 +449,11 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
             if shadow.dx != shadow.dy:
                 sh = f"\\xshad{_fmt(shadow.dx)}\\yshad{_fmt(shadow.dy)}"
                 text = f"{{{sh}}}{primary}"
-                if mode == "bilingual":
+                if secondary:
                     text += f"\\N{{\\rSecondary{sh}}}{secondary}"
             else:
                 text = primary
-                if mode == "bilingual":
+                if secondary:
                     text += f"\\N{{\\rSecondary}}{secondary}"
             shadow_line = text_line = f"Dialogue: 0,{_ass_ts(it['start'])},{_ass_ts(it['end'])},Default,,0,0,0,,{text}"
         lines.append(shadow_line)
@@ -458,70 +462,23 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
     return "\n".join(lines) + "\n"
 
 
-def build_ass(srt_path: Path, cfg_style: dict, probe: dict) -> str:
-    width, height = probe["width"], probe["height"]
-    fontsize = max(12, round(height * float(cfg_style.get("font_size_ratio", 0.05))))
-    margin_v = round(height * float(cfg_style.get("margin_v_ratio", 0.05)))
-    margin_h = round(width * 0.03)
-    font = cfg_style.get("primary_font_name", _DEFAULT_FONT)
-    font = _ensure_font(_resolve_font(font, False, False)[0], "primary")
-    bg = _parse_bg(cfg_style)
-    bg_color = bg.color if bg.enabled else None
-    bg_pad_x = bg.padding_x * fontsize if bg.enabled else 0.0
-    bg_pad_y = bg.padding_y * fontsize if bg.enabled else 0.0
-    header = f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: {width}
-PlayResY: {height}
-WrapStyle: 0
-ScaledBorderAndShadow: yes
+def cues_to_items(cues: list[srt_step.Cue], primary_lang: str, secondary_lang: str) -> list[dict]:
+    """v2 cue 列表 -> 条目（{id, start, end, <primary_lang>: 主块, <secondary_lang>: 副块}）。
 
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-{_style_block(width, height, cfg_style, fontsize, margin_v, margin_h, "Default", font, box=bg.enabled, box_color=bg_color, box_padding=bg_pad_y)}
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-    shadow = _parse_shadow(cfg_style.get("shadow"))
-    text_bottom = height - margin_v
-    lines = [header]
-    for raw in srt_path.read_text(encoding="utf-8").split("\n\n"):
-        raw = raw.strip()
-        if not raw:
-            continue
-        parts = raw.split("\n", 2)
-        if len(parts) < 3:
-            continue
-        ts = parts[1].split(" --> ")
-        if len(ts) != 2:
-            continue
-
-        def to_sec(t: str) -> float:
-            hh, mm, ss = t.replace(",", ".").split(":")
-            return int(hh) * 3600 + int(mm) * 60 + float(ss)
-
-        # 注意顺序：先转义 \ { }，再把 \n 换成 ASS 换行符 \N（\N 的反斜杠不能再被转义）
-        text = _ass_escape(parts[2].replace("\r", ""))
-        text = text.replace("\n", "\\N")
-        ts_head = f"Dialogue: 0,{_ass_ts(to_sec(ts[0]))},{_ass_ts(to_sec(ts[1]))},Default,,0,0,0,,"
-        if bg.enabled:
-            text = f"{{{_bord_tag(bg_pad_x, bg_pad_y)}}}{text}"
-            lines.append(ts_head + text)
-        elif shadow.blur > 0:
-            sh_color, sh_alpha = _bg_color_parts(shadow.color)
-            text_layer = f"{{\\pos({width / 2:.1f},{text_bottom:.1f})}}{text}"
-            shadow_layer = (
-                f"{{\\pos({width / 2 + shadow.dx:.1f},{text_bottom + shadow.dy:.1f})"
-                f"\\bord0\\1c{sh_color}\\1a{sh_alpha}\\blur{_fmt(shadow.blur)}}}{text}"
-            )
-            lines.append(ts_head + shadow_layer)
-            lines.append(ts_head + text_layer)
-        else:
-            if shadow.dx != shadow.dy:
-                text = f"{{\\xshad{_fmt(shadow.dx)}\\yshad{_fmt(shadow.dy)}}}{text}"
-            lines.append(ts_head + text)
-    return "\n".join(lines) + "\n"
+    build_ass_items 内部仍以语言码为字段键（样式按角色取值），这里把角色文本
+    （主块在上、副块在下）映射到配置的显示语言；副块为空时字段为空串，
+    渲染时该 cue 只显示主行。块内多行以 \\n 保留。
+    """
+    items: list[dict] = []
+    for i, c in enumerate(cues):
+        items.append({
+            "id": i,
+            "start": c.start,
+            "end": c.end,
+            primary_lang: "\n".join(c.main_lines),
+            secondary_lang: "\n".join(c.sub_lines),
+        })
+    return items
 
 
 def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: str | None = None) -> Path:
@@ -542,11 +499,20 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
     mode, primary_lang, secondary_lang = _style_mode(style_cfg, cfg.primary_lang(), cfg.secondary_lang())
     style_key = dict(style_cfg)
 
-    if not force and util.step_done(meta, STEP, style=style_key) and output.exists():
+    probe = util.probe_video(video)
+    enc = _resolve_encoder(cfg.section("burn"), encoder, probe["video_codec"])
+    defaults = ENCODER_DEFAULTS[enc]
+    burn_cfg = cfg.section("burn")
+    preset = burn_cfg.get("preset") or defaults["preset"]
+    crf = burn_cfg.get("crf") or defaults["crf"]
+    burn_key = {
+        "encoder": enc, "crf": crf, "preset": preset, "style": style_key,
+        "subs_digest": util.file_digest(srt_path),  # 字幕内容变了自动重烧（含人工编辑）
+    }
+    if not force and util.step_done(meta, STEP, burn=burn_key) and output.exists():
         log.info("[burn] 已完成，跳过")
         return output
 
-    probe = util.probe_video(video)
     log.info(
         "[burn] 源视频: %dx%d %.2ffps, %s, pix_fmt=%s",
         probe["width"], probe["height"], probe.get("fps") or 0,
@@ -555,21 +521,24 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
     if probe.get("pix_fmt", "").lower() not in ("", "yuv420p"):
         log.warning("[burn] 源像素格式 %s 非 yuv420p，输出将转为 yuv420p（兼容性优先）", probe["pix_fmt"])
 
-    ass_path = workdir / "subs.ass"
-    refined_path = workdir / "refined.json"
-    if refined_path.exists():
-        items = json.loads(refined_path.read_text(encoding="utf-8"))
-        ass = build_ass_items(items, style_cfg, probe, mode=mode, primary_lang=primary_lang, secondary_lang=secondary_lang)
-        log.info("[burn] 使用 refined 字幕（%d 条，mode=%s primary=%s secondary=%s）", len(items), mode, primary_lang, secondary_lang)
-    else:
-        ass = build_ass(srt_path, style_cfg, probe)
-    ass_path.write_text(ass, encoding="utf-8")
+    separator = srt_step.file_separator(cfg, meta)
+    text = srt_path.read_text(encoding="utf-8-sig")
+    cues, warnings = srt_step.parse_cues(text, separator)
+    for w in warnings:
+        log.warning("[burn] 字幕文件: %s", w)
+    if not cues:
+        raise RuntimeError(f"subs.srt 无可渲染的字幕（文件为空或全部无效）: {srt_path}")
+    items = cues_to_items(cues, primary_lang, secondary_lang)
+    ass = build_ass_items(
+        items, style_cfg, probe, mode=mode, primary_lang=primary_lang, secondary_lang=secondary_lang
+    )
+    log.info(
+        "[burn] 字幕 %d 条（mode=%s primary=%s%s）", len(cues), mode, primary_lang,
+        f" secondary={secondary_lang}" if mode == "bilingual" else "",
+    )
 
-    enc = _resolve_encoder(cfg.section("burn"), encoder, probe["video_codec"])
-    defaults = ENCODER_DEFAULTS[enc]
-    burn_cfg = cfg.section("burn")
-    preset = burn_cfg.get("preset") or defaults["preset"]
-    crf = burn_cfg.get("crf") or defaults["crf"]
+    ass_path = workdir / "subs.ass"
+    ass_path.write_text(ass, encoding="utf-8")
 
     # filter 内路径用单引号包裹，防止空格/特殊字符问题
     filter_str = f"ass=filename='{str(ass_path).replace(chr(39), chr(92) + chr(39))}'"
@@ -586,7 +555,7 @@ def run(cfg, workdir: Path, log: logging.Logger, force: bool = False, encoder: s
     util.run_cmd(cmd, log, timeout=None)
 
     meta["steps"] = {**meta.get("steps", {}), STEP: "done"}
-    meta["burn"] = {"encoder": enc, "crf": crf, "preset": preset, "style": style_key}
+    meta["burn"] = burn_key
     util.save_meta(workdir, meta)
     log.info("[burn] 完成: %s", output)
     return output

@@ -3,16 +3,37 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 META_FILE = "meta.json"
+
+def file_digest(path: Path) -> str | None:
+    """文件内容 sha1（十六进制）；文件不存在/不可读返回 None。"""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    return hashlib.sha1(data).hexdigest()
+
+
+def backup_file(path: Path, tag: str) -> Path | None:
+    """备份文件到 path.bak.<tag>-<时间戳>；文件不存在返回 None。"""
+    if not path.exists():
+        return None
+    bak = path.with_name(f"{path.name}.bak.{tag}-{time.strftime('%Y%m%d-%H%M%S')}")
+    shutil.copy(path, bak)
+    return bak
+
 
 # ---------- 颜色解析（CSS 风格 -> ASS &HAABBGGRR） ----------
 

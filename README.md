@@ -3,8 +3,11 @@
 YouTube 视频 → 硬字幕烧录的一站式管线（语言无关：源/目标/主/副语言均可配置）。每一环都是独立命令，产物落盘支持断点续跑。
 
 ```
-下载(yt-dlp) → 提取音频(ffmpeg) → 上传OSS(预签名URL) → ASR转写(阿里云百炼) → 翻译(DeepSeek) → refine(拆句/标点/接缝/双语) → 生成SRT → 烧录(libass)
+下载(yt-dlp) → 提取音频(ffmpeg) → 上传OSS(预签名URL) → ASR转写(阿里云百炼) → 翻译(DeepSeek)
+  → srt（生成双语字幕 subs.srt）→ refine（可选：拆句/标点/接缝）→ burn（烧录）
 ```
+
+双语能力由 `srt` 保证，`refine` 是可选显示层打磨；跳过 refine 直接 burn 不会损失双语。`subs.srt` 是可直接人工编辑的最终字幕文件——改完（增删条/改时/改文均可）重新 `burn` 即生效。
 
 ## 语言模型
 
@@ -43,15 +46,13 @@ cp .env.example .env                 # 填写三个 API key（见下）
 ## 使用
 
 ```bash
-uv run quicksrt all <youtube-url>        # 全链路
-uv run quicksrt download <youtube-url>   # 或分步执行
+uv run quicksrt download <youtube-url>   # 分步执行
 uv run quicksrt extract
 uv run quicksrt transcribe
 uv run quicksrt translate
-uv run quicksrt refine   # 显示层优化（拆句/标点/接缝/双语）
-uv run quicksrt refine --manual 人工精修稿.srt   # 人工精修稿导入（可选，同一步骤的特殊路径，见下）
-uv run quicksrt srt
-uv run quicksrt burn
+uv run quicksrt srt         # 生成基础双语 SRT subs.srt（主块 + 分隔行 + 副块）
+uv run quicksrt refine      # 可选：显示层优化（拆句/标点/接缝），就地改写 subs.srt
+uv run quicksrt burn        # 烧录（输入永远是 subs.srt 当前内容，含人工编辑）
 uv run quicksrt preview --res 1080p   # 纯色背景渲染单条字幕 PNG 预览（样式预览，默认第 1 条，--index 指定）
 uv run quicksrt preview --res 1080p --background white  # 覆盖背景色（或 #202020 等 ffmpeg 颜色值）
 uv run quicksrt preview --display  # 同上，并在 iTerm2 终端内直接展示图片（渲染到临时目录、不产生文件；终端不兼容则直接退出）
@@ -68,7 +69,7 @@ uv run quicksrt clean -y                 # 删除中间产物
 
 翻译环节使用结构化输出（`json_object` 模式 + pydantic 逐条校验），批次并行翻译（`[translate] max_concurrency`）。语言方向由 `[translate] source_lang`（缺省取 `[asr] language`）→ `target_lang` 决定，任意语言组合均可。可通过 `[translate] context_template` 注入视频上下文（占位符取 meta.json 字段，如 `{title}` `{description}` `{uploader}` `{url}`，缺失渲染为空串；修改模板会触发重译）。
 
-人工精修稿：自动 refine 后，可把双语 SRT（主语言行在上）在剪辑软件里手工精调（增删/合并/改时间/改措辞均允许），再用 `quicksrt refine --manual <file.srt>` 逐条原样回灌 refined.json（不做拆句/标点/接缝处理），`srt`/`burn`/`preview` 自动消费该结果。此后不带 `--manual` 的自动 refine 默认不会覆盖人工稿（需 `--force` 才覆盖，覆盖前自动备份）；详见 `references/docs/refine.md`。
+人工精调：`subs.srt` 就是最终字幕文件，可直接在字幕编辑器/文本编辑器里改（增删条、合并、改时间、改措辞都允许），改完重新 `quicksrt burn` 即生效，无需任何导回动作。文件中一条 cue 的文本为「主语言块 + 分隔行（默认 `--`，可用 `[srt] block_separator` 配置）+ 副语言块」，两块的内部行数不限；无分隔行表示该条只有主语言。为避免自动 refine / srt 悄悄冲掉你的修改，这两个命令在检测到文件被外部编辑过时会默认跳过，确需覆盖时加 `--force`（覆盖前自动备份）；`burn`/`preview` 没有守卫，永远消费文件当前内容。详见 `references/docs/refine.md`。
 
 已知限制：硬烧录必然重编码，画质损失通过 CRF 18 + slow preset 控制；源视频为 HDR 时未做色域转换，输出按 yuv420p 处理。
 

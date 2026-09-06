@@ -10,7 +10,7 @@
 支持链式继承（A 继承 B 继承 C），循环继承与引用不存在的预设会报错。
 
 语言模型（language agnostic）：链路用「语言码」标识语言、用「角色」标识职责。
-- 语言码：BCP-47 风格（en/zh/ja/ko…），仅作数据出现于配置、文件名与 refined.json 字段。
+- 语言码：BCP-47 风格（en/zh/ja/ko…），仅作数据出现于配置与文件名（segments_<码>.json）。
 - 角色：source（源语言，[asr] language）→ target（翻译目标，[translate] target_lang）
   → primary/secondary（显示主/副语言，[style]，缺省分别取 target/source）。
 样式（style/preset）只描述 primary/secondary 两个显示角色的视觉属性，不含语言码，
@@ -81,6 +81,9 @@ max_lines = 2
 min_duration = 1.0
 # 字幕时长上限：<=0 表示不截断（ASR 时长即真实语音时长，截断会让字幕在语音未完时消失）
 max_duration = 0
+# v2 双语字幕的分隔行：主语言块与副语言块之间的单独一行（默认 --）。
+# 若字幕正文恰会出现整行等于分隔符的内容，可改成其它不会冲突的字符串（如 == 或 ;;）
+block_separator = "--"
 
 [refine]
 # 前后接缝优化：相邻字幕间隔小于该值（秒）时，前一条延伸至后一条开始，消除闪烁
@@ -232,7 +235,7 @@ class Config:
     # ---------- 语言解析（语言码 × 角色） ----------
     # 缺省链：source（[asr] language）→ target（[translate] target_lang）
     # → primary（[style] primary_lang 缺省 target）/ secondary（[style] secondary_lang 缺省 source）。
-    # 语言码仅作为数据（配置/文件名/refined.json 字段），样式与语言完全解耦。
+    # 语言码仅作为数据（配置/segments 文件名），样式与语言完全解耦。
 
     def source_lang(self) -> str:
         """源语言（视频原始语言，ASR 输入）：[asr] language。"""

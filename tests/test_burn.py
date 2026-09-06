@@ -16,7 +16,6 @@ from quicksrt.steps.burn import (
     _role_style,
     _style_block,
     _style_mode,
-    build_ass,
     build_ass_items,
 )
 
@@ -270,6 +269,15 @@ _STYLE = {
 _ITEMS = [{"id": 0, "src_id": 0, "start": 1.0, "end": 2.0, "zh": "你好", "en": "hello"}]
 _PROBE = {"width": 1920, "height": 1080}
 
+def _srt_items(text, primary="zh", secondary="en"):
+    """v2 文本 -> items（burn 消费路径：parse_cues + cues_to_items）。"""
+    from quicksrt.steps.burn import cues_to_items
+    from quicksrt.steps.srt import parse_cues
+
+    cues, warnings = parse_cues(text)
+    assert not warnings
+    return cues_to_items(cues, primary, secondary)
+
 
 def test_build_ass_bilingual_zh_primary():
     ass = build_ass_items(_ITEMS, _STYLE, _PROBE)
@@ -477,18 +485,13 @@ def test_build_ass_bg_disabled_by_default():
     assert "\\bord" not in ass
 
 
-def test_build_ass_srt_bg(tmp_path):
-    """build_ass（srt 直烧路径）同样支持 box 背景。"""
-    srt = tmp_path / "s.srt"
-    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\n你好\n\n", encoding="utf-8")
+def test_burn_srt_path_bg(tmp_path):
+    """v2 文件直烧路径支持 box 背景（burn 统一走 build_ass_items）。"""
+    text = "1\n00:00:01,000 --> 00:00:02,000\n你好\n"
     style = {**_STYLE, "bg": {"padding": 0.35}}
-    ass = build_ass(srt, style, _PROBE)
+    ass = build_ass_items(_srt_items(text), style, _PROBE)
     assert "Style: Default,ZH-Font,54,&H00FFFFFF,&H000000FF,&HB5000000,&HB5000000,0,0,0,0,100,100,0,0,3,18.9,1,2" in ass
     assert "{\\bord18.9}你好" in ass
-
-
-# ---------- 阴影重构（shadow 偏移/模糊/颜色） ----------
-
 
 def test_fmt():
     assert _fmt(1) == "1"
@@ -606,22 +609,19 @@ def test_build_ass_bg_with_two_layer_shadow():
     assert "你好" in dls[0]
 
 
-def test_build_ass_srt_two_layer(tmp_path):
-    """SRT 直转路径：双层渲染同样生效。"""
-    srt = tmp_path / "s.srt"
-    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nHello World\n\n", encoding="utf-8")
+def test_burn_srt_path_two_layer(tmp_path):
+    """v2 文件直烧路径：双层阴影渲染同样生效。"""
+    text = "1\n00:00:01,000 --> 00:00:02,000\nHello World\n"
     style = {**_STYLE, "shadow": {"dx": 2, "dy": 3, "blur": 2}}
-    ass = build_ass(srt, style, _PROBE)
+    ass = build_ass_items(_srt_items(text), style, _PROBE)
     dls = [l for l in ass.splitlines() if l.startswith("Dialogue: 0,")]
     assert len(dls) == 2
     assert "{\\pos(962.0,1029.0)\\bord0\\1c&H000000\\1a&H80\\blur2}Hello World" in dls[0]
     assert "{\\pos(960.0,1026.0)}Hello World" in dls[1]
     assert "Style: Default,ZH-Font,54," in ass
 
-
-def test_build_ass_srt_single_layer_xy_diff(tmp_path):
-    srt = tmp_path / "s.srt"
-    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nHello World\n\n", encoding="utf-8")
+def test_burn_srt_path_single_layer_xy_diff(tmp_path):
+    text = "1\n00:00:01,000 --> 00:00:02,000\nHello World\n"
     style = {**_STYLE, "shadow": {"dx": 1, "dy": 3}}
-    ass = build_ass(srt, style, _PROBE)
+    ass = build_ass_items(_srt_items(text), style, _PROBE)
     assert "{\\xshad1\\yshad3}Hello World" in ass

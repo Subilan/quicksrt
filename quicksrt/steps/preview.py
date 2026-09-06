@@ -12,7 +12,7 @@ CLI 加 --display 时生成 iTerm2 内联图片转义序列，终端内直接展
 背景色需与文字颜色有足够差异（--res/--video-id 无效）。
 
 --example <lorem|glass|fox>：用内置固定示例文本（zh/en 双语）直接预览，不依赖
-refined.json 等已有数据、无需 work 目录；裸 --example 默认 lorem。
+subs.srt 等已有数据、无需 work 目录；裸 --example 默认 lorem。
 lorem 中文用《临江仙·滚滚长江东逝水》上阕（与 lorem ipsum 行宽相当）；glass 对应"我能吞下玻璃而不伤身体"（I can eat glass）；
 fox 对应经典全字母句"quick brown fox"。示例模式无源视频，--res auto 回退 1080p。
 
@@ -24,7 +24,6 @@ fox 对应经典全字母句"quick brown fox"。示例模式无源视频，--res
 from __future__ import annotations
 
 import base64
-import json
 import logging
 import os
 import re
@@ -32,10 +31,11 @@ from pathlib import Path
 
 from .. import util
 from . import burn
+from . import srt as srt_step
 
 RESOLUTIONS = {"720p": (1280, 720), "1080p": (1920, 1080), "4k": (3840, 2160)}
 
-# --example 内置示例文本（key 为语言码 zh/en，与 refined.json 字段一致）
+# --example 内置示例文本（key 为语言码 zh/en，与条目字段一致）
 EXAMPLES = {
     "lorem": {
         "zh": "滚滚长江东逝水，浪花淘尽英雄。是非成败转头空。青山依旧在，几度夕阳红。",
@@ -290,7 +290,7 @@ def _run_example(cfg, workdir: Path | None, log: logging.Logger,
                  example_secondary: str | None = None, res: str = "auto",
                  index: int = 1, background: str | None = None, crop: bool = False,
                  preset: str | None = None, out_dir: Path | None = None) -> Path:
-    """示例模式渲染预览，不依赖 refined.json 等已有数据。
+    """示例模式渲染预览，不依赖 subs.srt 等已有数据。
 
     example 非 None 用内置固定示例文本（zh/en 语言码键）；否则用
     example_primary/example_secondary 手动构造（语言码键取 [style] 配置，
@@ -346,12 +346,20 @@ def run(cfg, workdir: Path | None, log: logging.Logger, res: str = "auto", index
                             res=res, index=index, background=background, crop=crop,
                             preset=preset, out_dir=out_dir)
     meta = util.load_meta(workdir)
-    refined_path = workdir / "refined.json"
-    if not refined_path.exists():
-        raise FileNotFoundError(f"缺少 {refined_path.name}（先执行 refine）")
-    items = json.loads(refined_path.read_text(encoding="utf-8"))
-    if not items:
-        raise RuntimeError("refined.json 为空，无法预览")
+    srt_path = workdir / "subs.srt"
+    if not srt_path.exists():
+        raise FileNotFoundError(f"缺少 {srt_path.name}（先执行 srt 生成字幕）")
+    separator = srt_step.file_separator(cfg, meta)
+    cues, warnings = srt_step.parse_cues(srt_path.read_text(encoding="utf-8-sig"), separator)
+    for w in warnings:
+        log.warning("[preview] 字幕文件: %s", w)
+    if not cues:
+        raise RuntimeError("subs.srt 无可预览的字幕（文件为空或全部无效）")
+    style_cfg = cfg.style_config(preset=preset)
+    mode, primary_lang, secondary_lang = burn._style_mode(
+        style_cfg, cfg.primary_lang(), cfg.secondary_lang()
+    )
+    items = burn.cues_to_items(cues, primary_lang, secondary_lang)
     if crop:
         return _run_crop(cfg, workdir, log, items, index, meta, preset=preset,
                          background=background, out_dir=out_dir)
