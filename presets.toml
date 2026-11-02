@@ -10,7 +10,7 @@
 [default]
 # 主行字体与整体字号/边距
 primary_font_name = "微软雅黑"
-font_size_ratio = 0.05
+font_size_ratio = 0.065
 margin_v_ratio = 0.05
 primary_color = "#FFFFFF"
 outline_color = "#000000"
