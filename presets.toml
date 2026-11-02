@@ -1,0 +1,67 @@
+# 样式预设：一段一个命名预设（段名 = 预设名），config.toml 的 [style] 用 preset 引用。
+# 预设描述两个显示角色：primary（中文，在上、大字号）与 secondary（英文，在下、小字号）。
+# preset = "父预设名" 即继承父预设，同名键覆盖；支持链式继承。
+
+[default]
+primary_font_name = "微软雅黑"
+secondary_font_name = "微软雅黑"
+font_size_ratio = 0.065
+margin_v_ratio = 0.05
+secondary_font_ratio = 0.6
+primary_color = "#FFFFFF"
+outline_color = "#000000"
+outline = 2
+shadow = 1
+# bilingual（中上英下）| mono（只显示中文）
+mode = "bilingual"
+# 假粗体/假斜体，精确字重用 primary_font_name = "Family:style=Medium" 写法
+primary_bold = false
+primary_italic = false
+secondary_bold = false
+secondary_italic = false
+# 字幕背景：写 bg = { padding, padding_x, padding_y, color } 即启用，
+# 开启后阴影与描边失效
+bg = false
+
+[belike]
+extends = "default"
+bg = { padding_x = 0.5, padding_y = 0.15, color = '#ff0000' }
+mode = "mono"
+primary_font_name = "Noto Sans SC:style=Medium"
+shadow = 0
+outline = 0
+
+[plex]
+extends = "default"
+outline = 0
+shadow = { blur = 5, dx = 0, dy = 2, color = "rgba(0,0,0,.5)" }
+primary_font_name = "IBM Plex Sans SC Medm"
+secondary_font_name = "IBM Plex Sans"
+secondary_italic = true
+secondary_color = "#88caff"
+
+[plex_yellow]
+extends = "plex"
+secondary_color = "#fffb00"
+
+[dazhizuo]
+extends = "default"
+mode = "mono"
+primary_font_name = "SimSun"
+primary_italic = true
+primary_italic_shear = "-0.3"
+outline = 0.7
+
+[dianshiju]
+extends = "default"
+mode = "mono"
+primary_font_name = "Heiti SC:style=Medium"
+primary_bold = true
+
+[youzimu]
+extends = "default"
+primary_font_name = "方正正粗黑简体"
+secondary_font_name = "方正正粗黑简体"
+primary_color = "#00ffd9"
+secondary_color = "#fff"
+secondary_font_ratio = 0.5

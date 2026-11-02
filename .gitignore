@@ -1,0 +1,5 @@
+.venv/
+__pycache__/
+work/
+*.burned.mp4
+config.toml

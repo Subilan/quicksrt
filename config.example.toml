@@ -1,0 +1,46 @@
+# 复制为 config.toml 后填入自己的密钥。
+
+# ---------- 语音识别 ----------
+[asr]
+model = "paraformer-v2"
+base_url = "https://dashscope.aliyuncs.com"
+api_key = "sk-xxx"
+# 每次请求的音频长度上限（秒），按静音位置切分
+chunk_seconds = 240
+
+# ---------- 翻译（OpenAI 兼容的 chat/completions 接口） ----------
+[translate]
+model = "qwen-plus"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "sk-xxx"
+# 每次请求翻译的字幕条数
+batch_size = 20
+
+# ---------- 视频与字幕 ----------
+[subtitle]
+# 下载与中间文件目录
+work_dir = "work"
+# yt-dlp 的 format 表达式
+format = "bv*+ba/b"
+# 需要登录的视频填浏览器名，如 "chrome"；留空则不读 cookie
+cookies_from_browser = ""
+# 单条字幕最长秒数
+max_cue_seconds = 7
+# 词间停顿超过该秒数即断句
+split_gap = 0.8
+# 相邻字幕间隙小于该秒数时填平，避免闪烁
+min_gap = 0.3
+
+# ---------- 样式 ----------
+# 预设来自 presets.toml，此处同名键覆盖预设值
+[style]
+preset = "default"
+
+# ---------- 烧录 ----------
+[burn]
+# libx264 | libx265 | libsvtav1
+encoder = "libx264"
+# 留空则用编码器默认值
+# crf = 18
+# 留空则用编码器默认值（libx264=slow，libx265=medium，libsvtav1=8）
+# preset = "slow"
