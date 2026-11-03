@@ -5,7 +5,7 @@
 model = "paraformer-v2"
 base_url = "https://dashscope.aliyuncs.com"
 api_key = "sk-xxx"
-# 每次请求的音频长度上限（秒），按静音位置切分
+# 每次请求的音频长度上限（秒），只在静音处切分，无静音时可超出到 1.5 倍
 chunk_seconds = 240
 
 # ---------- 翻译（OpenAI 兼容的 chat/completions 接口） ----------
