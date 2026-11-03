@@ -3,3 +3,4 @@ __pycache__/
 work/
 *.burned.mp4
 config.toml
+.gitignore
